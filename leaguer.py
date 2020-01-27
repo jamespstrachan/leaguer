@@ -66,9 +66,6 @@ for fixture in fixtures:
     if team not in divisions[draw]:
         divisions[draw].append(team)
 
-# make a copy to work on so we can always refer back to the original
-new_fixtures = fixtures
-
 
 def is_same_club(team1, team2):
     """ returns true if the club names are identical except for the trailing team number"""
@@ -94,7 +91,7 @@ def sort_home_away(team1, team2):
             return fixture['Team 2'], fixture['Team 1']
 
     # if either team played same club already this league, reverse that team's home/away
-    for fixture in new_fixtures:
+    for fixture in fixtures:
         if not fixture['Date']:
             continue
         if fixture['Team 1'] == team1 and is_same_club(team2, fixture['Team 2']):
@@ -119,7 +116,7 @@ def date_team_last_played(team):
         or last year if they have not yet played
     """
     last_played = datetime.now() - timedelta(weeks=52)
-    for fixture in new_fixtures:
+    for fixture in fixtures:
         if team in (fixture['Team 1'], fixture['Team 2']) and fixture['Date']:
             last_played = max(last_played, datetime.strptime(fixture['Date'], date_format))
     return last_played
@@ -135,7 +132,7 @@ def can_team_play_at_home_on_date(home_team, away_team, date):
         sharing_team = slots[team_slots[home_team]]['Team 1']
 
     if sharing_team and sharing_team != away_team: # if the sharing_team is the away_team that's fine!
-        for fixture in new_fixtures:
+        for fixture in fixtures:
             if fixture['Date'] == date.strftime(date_format) and fixture['Team 1'] == sharing_team:
                 print('   ... {} are using the slot shared with {} on {}'.format(sharing_team, home_team, date.strftime(date_format)))
                 return False
@@ -180,16 +177,55 @@ for division, teams in divisions.items():
         for other_team in teams[i:]:
             if is_same_club(team, other_team) and team != other_team:
                 print(" ! {} and {} must play early".format(team, other_team))
-                schedule_fixture(new_fixtures, team, other_team)
+                schedule_fixture(fixtures, team, other_team)
 
-    for fixture in new_fixtures:
+    for fixture in fixtures:
         if fixture['Draw'] == division and not fixture['Date']:
             print(" + scheduling {} vs {} ...".format(fixture['Team 1'], fixture['Team 2']))
-            schedule_fixture(new_fixtures, fixture['Team 1'], fixture['Team 2'])
+            schedule_fixture(fixtures, fixture['Team 1'], fixture['Team 2'])
 
+# Sort the fixture list by division then by match date, time
+fixtures = sorted(fixtures, key=lambda row: (row['Draw'], datetime.strptime(row['Date'], date_format), row['Time']))
 
+team_stats = {}
+for fixture in fixtures:
+    for column_heading in ('Team 1', 'Team 2'):
+        team = fixture[column_heading]
+        if team not in team_stats:
+            team_stats[team] = {
+                'home_matches': 0,
+                'away_matches': 0,
+                'match_dates': [],
+            }
+        team_stats[team]['match_dates'].append(datetime.strptime(fixture['Date'], date_format))
+        if column_heading == 'Team 1':
+            team_stats[team]['home_matches'] += 1
+        else:
+            team_stats[team]['away_matches'] += 1
 
-#exit()
+print("==========================================================================")
+print(' Summary  -  minimum {} days rest'.format(rest_days))
+print("==========================================================================")
+name_pad_len  = max(len(x) for x in team_stats.keys())
+first_fixture = datetime.now() + timedelta(weeks=52)
+last_fixture  = datetime.now() - timedelta(weeks=52)
+for team, stats in team_stats.items():
+    dates = sorted(stats['match_dates'])
+    first_fixture = min(first_fixture, min(dates))
+    last_fixture  = max(last_fixture, max(dates))
+    days_rest = [(date-dates[i]).days for  i, date in enumerate(dates[1:])]
+    print(' {:<{name_pad_len}} : {}h/{}a  rest for {} to {} days'.format(
+        team,
+        stats['home_matches'],
+        stats['away_matches'],
+        min(days_rest),
+        max(days_rest),
+        name_pad_len=name_pad_len))
+
+print("")
+print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fixture.strftime(date_format)))
+print("==========================================================================")
+
 
 with open(os.path.join(dir_path, output_filename), 'w', newline='') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fixture_file_headers, delimiter=',', quotechar='"')

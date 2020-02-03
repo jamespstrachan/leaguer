@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 import os
 
 
-rest_days         = 6
+rest_days         = 4
 output_filename   = 'results {}.csv'.format(datetime.now().strftime('%Y%b%d %H.%M.%S'))
 fixtures_filename = 'fixtures.csv'
 old_fixtures_filename = 'old_fixtures.csv'
@@ -29,7 +29,7 @@ dir_path          = os.path.dirname(os.path.realpath(__file__))
 with open(fixtures_filename, newline=newline) as csvfile:
     reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
     fixture_file_headers = reader.fieldnames
-    fixtures = [x for x in reader]
+    fixtures = [x for x in reader if x['Team 1'] != 'Bye']
 
 # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
 with open(old_fixtures_filename, newline=newline) as csvfile:
@@ -90,25 +90,42 @@ def sort_home_away(team1, team2):
             print("   ... making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
             return fixture['Team 2'], fixture['Team 1']
 
+    team1_away, team1_home, team2_away, team2_home = 0,0,0,0
     # if either team played same club already this league, reverse that team's home/away
     for fixture in fixtures:
         if not fixture['Date']:
             continue
-        if fixture['Team 1'] == team1 and is_same_club(team2, fixture['Team 2']):
-            print('   ... {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
-            return team2, team1
-        if fixture['Team 2'] == team1 and is_same_club(team2, fixture['Team 1']):
-            print('   ... {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
-            return team1, team2
-        if fixture['Team 1'] == team2 and is_same_club(team1, fixture['Team 2']):
-            print('   ... {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
-            return team1, team2
-        if fixture['Team 2'] == team2 and is_same_club(team1, fixture['Team 1']):
-            print('   ... {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
-            return team2, team1
+        if team1 == fixture['Team 1']:
+            team1_home += 1
+            if is_same_club(team2, fixture['Team 2']):
+                print('   ... {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
+                return team2, team1
+        if team1 == fixture['Team 2']:
+            team1_away += 1
+            if is_same_club(team2, fixture['Team 1']):
+                print('   ... {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
+                return team1, team2
+        if team2 == fixture['Team 1']:
+            team2_home += 1
+            if is_same_club(team1, fixture['Team 2']):
+                print('   ... {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
+                return team1, team2
+        if team2 == fixture['Team 2']:
+            team2_away += 1
+            if is_same_club(team1, fixture['Team 1']):
+                print('   ... {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
+                return team2, team1
 
-    # return team with most away matches as home team
-    return team1, team2
+    # correct the team with the most different home vs away count
+    print('   ... {} have scheduled {}h/{}a, {} have scheduled {}h/{}a'.format(team1, team1_home, team1_away, team2, team2_home, team2_away)  )
+    if abs(team1_home - team1_away) > abs(team2_home - team2_away):
+        if team1_home < team1_away:
+            return team1, team2
+        return team2, team1
+    else:
+        if team2_home < team2_away:
+            return team2, team1
+        return team1, team2
 
 
 def date_team_last_played(team):
@@ -160,8 +177,10 @@ def schedule_fixture(fixtures, team1, team2):
                   or not can_team_play_at_home_on_date(home_team, away_team, date_proposed):
                 date_proposed = date_proposed + timedelta(days=7)
 
-            fixtures[i]['Date'] = date_proposed.strftime(date_format)
-            fixtures[i]['Time'] = slot['Time']
+            fixtures[i]['Date']     = date_proposed.strftime(date_format)
+            fixtures[i]['Time']     = slot['Time']
+            fixtures[i]['Court']    = '1'
+            fixtures[i]['Location'] = 'Main Location'
             print("   ... scheduled for {} on {} at {}".format(fixtures[i]['Time'], fixtures[i]['Date'], home_team))
             return
     raise Exception(' ! Fixture for {} vs {} is not in the fixtures.py file'.format(team1, team2))

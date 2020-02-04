@@ -1,4 +1,4 @@
 /results*
-fixtures.csv
-old_fixtures.csv
-slots.csv
+/fixtures.*
+/old_fixtures.*
+/slots.*

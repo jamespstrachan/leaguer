@@ -12,34 +12,58 @@ docker run -ti --rm --name leaguer -v "$PWD":/leaguer -w /leaguer python:3.8.0-a
 """
 
 import csv
+import pandas
 from datetime import datetime, timedelta
 import os
 
 
+# file_format       = 'xlsx'
+file_format      = 'csv'
 rest_days         = 4
-output_filename   = 'results {}.csv'.format(datetime.now().strftime('%Y%b%d %H.%M.%S'))
-fixtures_filename = 'fixtures.csv'
-old_fixtures_filename = 'old_fixtures.csv'
-slots_filename    = 'slots.csv'
+output_filename   = 'results {}.{}'.format(datetime.now().strftime('%Y%b%d %H.%M.%S'), file_format)
+fixtures_filename = 'fixtures.{}'.format(file_format)
+old_fixtures_filename = 'old_fixtures.{}'.format(file_format)
+slots_filename    = 'slots.{}'.format(file_format)
 date_format       = '%d/%m/%Y'
 newline           = "\r\n"
 dir_path          = os.path.dirname(os.path.realpath(__file__))
 
-# make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
-with open(fixtures_filename, newline=newline) as csvfile:
-    reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
-    fixture_file_headers = reader.fieldnames
-    fixtures = [x for x in reader if x['Team 1'] != 'Bye']
+if file_format == 'xlsx':
+    # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
+    with open(fixtures_filename, "rb") as xlsxfile:
+        fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
+        fixture_file_headers = fixtures_dataframe.columns
+        fixtures = fixtures_dataframe.to_dict(orient="records")
 
-# make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
-with open(old_fixtures_filename, newline=newline) as csvfile:
-    reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
-    old_fixtures = [x for x in reader]
+    # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
+    with open(old_fixtures_filename, "rb") as xlsxfile:
+        old_fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
+        old_fixtures = fixtures_dataframe.to_dict(orient="records")
 
-# make slots list of dicts with keys: Date,Time,Court,Team 1,Team 2
-with open(slots_filename, newline=newline) as csvfile:
-    reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
-    slots = [x for x in reader]
+    # make slots list of dicts with keys: Date,Time,Court,Team 1,Team 2
+    with open(slots_filename, "rb") as xlsxfile:
+        slots_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
+        slots = slots_dataframe.to_dict(orient="records")
+else:
+    # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
+    with open(fixtures_filename, newline=newline) as csvfile:
+        reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
+        fixture_file_headers = reader.fieldnames
+        fixtures = list(reader)
+
+    # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
+    with open(old_fixtures_filename, newline=newline) as csvfile:
+        reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
+        old_fixtures = [x for x in reader]
+
+    # make slots list of dicts with keys: Date,Time,Court,Team 1,Team 2
+    with open(slots_filename, newline=newline) as csvfile:
+        reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
+        slots = [x for x in reader]
+
+
+fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
+
 
 team_slots = {}
 for fixture in fixtures:
@@ -84,12 +108,6 @@ def sort_home_away(team1, team2):
         print("   ... same club, home/away doesn't matter")
         return team1, team2
 
-    # if played last year return opposite
-    for fixture in old_fixtures:
-        if is_same_fixture(team1, team2, fixture):
-            print("   ... making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
-            return fixture['Team 2'], fixture['Team 1']
-
     team1_away, team1_home, team2_away, team2_home = 0,0,0,0
     # if either team played same club already this league, reverse that team's home/away
     for fixture in fixtures:
@@ -116,6 +134,13 @@ def sort_home_away(team1, team2):
                 print('   ... {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
                 return team2, team1
 
+    # if played last year return opposite
+    for fixture in old_fixtures:
+        if is_same_fixture(team1, team2, fixture):
+            print("   ... making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
+            return fixture['Team 2'], fixture['Team 1']
+
+    # todo: Bias teams that share a slot to play an extra match away rather than home
     # correct the team with the most different home vs away count
     print('   ... {} have scheduled {}h/{}a, {} have scheduled {}h/{}a'.format(team1, team1_home, team1_away, team2, team2_home, team2_away)  )
     if abs(team1_home - team1_away) > abs(team2_home - team2_away):
@@ -246,8 +271,13 @@ print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fix
 print("==========================================================================")
 
 
-with open(os.path.join(dir_path, output_filename), 'w', newline='') as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=fixture_file_headers, delimiter=',', quotechar='"')
-    writer.writeheader()
-    for fixture in fixtures:
-        writer.writerow(fixture)
+if file_format == 'xlsx':
+    with open(os.path.join(dir_path, output_filename) , "wb") as xlsxfile:
+        dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
+        dataframe.to_excel(xlsxfile, index=False)
+else:
+    with open(os.path.join(dir_path, output_filename), 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fixture_file_headers, delimiter=',', quotechar='"')
+        writer.writeheader()
+        for fixture in fixtures:
+            writer.writerow(fixture)

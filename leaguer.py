@@ -16,9 +16,8 @@ import pandas
 from datetime import datetime, timedelta
 import os
 
-
-# file_format       = 'xlsx'
-file_format      = 'csv'
+file_format       = 'xlsx'
+# file_format      = 'csv'
 rest_days         = 4
 output_filename   = 'results {}.{}'.format(datetime.now().strftime('%Y%b%d %H.%M.%S'), file_format)
 fixtures_filename = 'fixtures.{}'.format(file_format)
@@ -54,12 +53,12 @@ else:
     # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(old_fixtures_filename, newline=newline) as csvfile:
         reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
-        old_fixtures = [x for x in reader]
+        old_fixtures = list(reader)
 
     # make slots list of dicts with keys: Date,Time,Court,Team 1,Team 2
     with open(slots_filename, newline=newline) as csvfile:
         reader = csv.DictReader(csvfile, delimiter=',', quotechar='"')
-        slots = [x for x in reader]
+        slots = list(reader)
 
 
 fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
@@ -77,9 +76,8 @@ for fixture in fixtures:
     if team not in team_slots:
         raise Exception('Team "{}" have no slot defined in {}'.format(team, slots_filename))
 
-## helps make starting slot for each team
-# for team in team_slots.keys():
-    # print("7/2/2020,19:00,1,{}".format(team))
+fixtures_scheduled = [{'fixtures': 0, 'slot_date': datetime.strptime(slots[slot_idx]['Date'], date_format), 'team': team}
+                      for team, slot_idx in team_slots.items()]
 
 divisions = {}
 for fixture in fixtures:
@@ -99,6 +97,14 @@ def is_same_club(team1, team2):
 def is_same_fixture(team1, team2, fixture):
     """ returns True if the teams are already in the fixture provided """
     return sorted((team1, team2)) == sorted((fixture['Team 1'], fixture['Team 2']))
+
+
+def is_fixture_scheduled(team1, team2):
+    """ returns True if the teams are already scheduled to play """
+    for fixture in fixtures:
+        if fixture['Date'] and is_same_fixture(team1, team2, fixture):
+            return True
+    return False
 
 
 def sort_home_away(team1, team2):
@@ -186,6 +192,7 @@ def schedule_fixture(fixtures, team1, team2):
     """ returns an updated fixtures list after scheduling the fixture for the supplied teams as early as
         possible
     """
+    print(" + scheduling {} vs {} ...".format(team1, team2))
     for i, fixture in enumerate(fixtures):
         if is_same_fixture(team1, team2, fixture):
             if fixture['Date']:
@@ -197,18 +204,32 @@ def schedule_fixture(fixtures, team1, team2):
 
             slot             = slots[team_slots[home_team]]
             date_proposed    = datetime.strptime(slot['Date'], date_format)
+            #print('proposing {} based on {}'.format(date_proposed, slot))
             date_last_played = max(date_team_last_played(home_team), date_team_last_played(away_team))
             while date_proposed < date_last_played + timedelta(days=rest_days) \
                   or not can_team_play_at_home_on_date(home_team, away_team, date_proposed):
                 date_proposed = date_proposed + timedelta(days=7)
+                #print('bumping date to {}...'.format(date_proposed))
 
             fixtures[i]['Date']     = date_proposed.strftime(date_format)
             fixtures[i]['Time']     = slot['Time']
             fixtures[i]['Court']    = '1'
             fixtures[i]['Location'] = 'Main Location'
+            for j, record in enumerate(fixtures_scheduled):
+                if record['team'] in (home_team, away_team):
+                    fixtures_scheduled[j]['fixtures'] += 1
+
             print("   ... scheduled for {} on {} at {}".format(fixtures[i]['Time'], fixtures[i]['Date'], home_team))
             return
     raise Exception(' ! Fixture for {} vs {} is not in the fixtures.py file'.format(team1, team2))
+
+def find_unplayed_opponent(fixtures, team):
+    for fixture in fixtures:
+        if not fixture['Date']:
+            if team == fixture['Team 1']:
+                return fixture['Team 2']
+            if team == fixture['Team 2']:
+                return fixture['Team 1']
 
 
 for division, teams in divisions.items():
@@ -223,9 +244,23 @@ for division, teams in divisions.items():
                 print(" ! {} and {} must play early".format(team, other_team))
                 schedule_fixture(fixtures, team, other_team)
 
+    num_matches = int((len(teams) * (len(teams)-1)) / 2)
+    for i in range(0, num_matches):
+        fixtures_scheduled.sort(key=lambda x: (x['fixtures'], x['slot_date']))
+#        print(fixtures_scheduled)
+        division_fixtures_scheduled = list(x for x in fixtures_scheduled if x['team'] in teams)
+        team = division_fixtures_scheduled[0]['team']
+
+        for j in range(1, len(teams)):
+            opponent = division_fixtures_scheduled[j]['team']
+            if not is_fixture_scheduled(team, opponent):
+                print('consider {} (played {}) vs {} (played {})'.format(team, division_fixtures_scheduled[0]['fixtures'],
+                                                                     opponent, division_fixtures_scheduled[1]['fixtures']))
+                schedule_fixture(fixtures, team, opponent)
+                break
+
     for fixture in fixtures:
         if fixture['Draw'] == division and not fixture['Date']:
-            print(" + scheduling {} vs {} ...".format(fixture['Team 1'], fixture['Team 2']))
             schedule_fixture(fixtures, fixture['Team 1'], fixture['Team 2'])
 
 # Sort the fixture list by division then by match date, time
@@ -258,10 +293,12 @@ for team, stats in team_stats.items():
     first_fixture = min(first_fixture, min(dates))
     last_fixture  = max(last_fixture, max(dates))
     days_rest = [(date-dates[i]).days for  i, date in enumerate(dates[1:])]
-    print(' {:<{name_pad_len}} : {}h/{}a  rest for {} to {} days'.format(
+    print(' {:<{name_pad_len}} : {}h/{}a  {}->{}, rest {} to {} days '.format(
         team,
         stats['home_matches'],
         stats['away_matches'],
+        min(dates).strftime('%d%b'),
+        max(dates).strftime('%d%b'),
         min(days_rest),
         max(days_rest),
         name_pad_len=name_pad_len))
@@ -270,6 +307,8 @@ print("")
 print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fixture.strftime(date_format)))
 print("==========================================================================")
 
+for i, fixture in enumerate(fixtures):
+    fixtures[i]['Date'] = fixtures[i]['Date'].replace('/0', '/')
 
 if file_format == 'xlsx':
     with open(os.path.join(dir_path, output_filename) , "wb") as xlsxfile:

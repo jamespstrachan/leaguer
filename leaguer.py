@@ -43,6 +43,7 @@ if file_format == 'xlsx':
     with open(slots_filename, "rb") as xlsxfile:
         slots_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
         slots = slots_dataframe.to_dict(orient="records")
+
 else:
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(fixtures_filename, newline=newline) as csvfile:
@@ -307,13 +308,14 @@ print("")
 print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fixture.strftime(date_format)))
 print("==========================================================================")
 
-for i, fixture in enumerate(fixtures):
-    fixtures[i]['Date'] = fixtures[i]['Date'].replace('/0', '/')
 
 if file_format == 'xlsx':
-    with open(os.path.join(dir_path, output_filename) , "wb") as xlsxfile:
+    with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM') as writer:
+        for i, fixture in enumerate(fixtures):
+            fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
-        dataframe.to_excel(xlsxfile, index=False)
+        dataframe.to_excel(writer, index=False)
 else:
     with open(os.path.join(dir_path, output_filename), 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fixture_file_headers, delimiter=',', quotechar='"')

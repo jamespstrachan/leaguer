@@ -2,3 +2,4 @@
 /fixtures.*
 /old_fixtures.*
 /slots.*
+/.env

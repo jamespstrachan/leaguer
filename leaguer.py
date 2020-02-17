@@ -66,12 +66,16 @@ fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
 
 
 team_slots = {}
+teams_sharing_slots = []
 for fixture in fixtures:
     team = fixture['Team 1']
     if team in team_slots:
         continue
     for i, slot in enumerate(slots):
         if team in (slot['Team 1'], slot['Team 2']):
+            if slot['Team 2']:
+                teams_sharing_slots.append(slot['Team 1'])
+                teams_sharing_slots.append(slot['Team 2'])
             team_slots[team] = i
             break
     if team not in team_slots:
@@ -126,7 +130,12 @@ def sort_home_away(team1, team2):
                 print('   ... {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
                 return team2, team1
         if team1 == fixture['Team 2']:
-            team1_away += 1
+            # Don't count matches as 'away' if they were played against a team from same club
+            if is_same_club(team1, fixture['Team 1']):
+                team1_home += 1
+            else:
+                team1_away += 1
+
             if is_same_club(team2, fixture['Team 1']):
                 print('   ... {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
                 return team1, team2
@@ -136,7 +145,12 @@ def sort_home_away(team1, team2):
                 print('   ... {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
                 return team1, team2
         if team2 == fixture['Team 2']:
-            team2_away += 1
+            # Don't count matches as 'away' if they were played against a team from same club
+            if is_same_club(team2, fixture['Team 1']):
+                team2_home += 1
+            else:
+                team2_away += 1
+
             if is_same_club(team1, fixture['Team 1']):
                 print('   ... {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
                 return team2, team1
@@ -147,10 +161,17 @@ def sort_home_away(team1, team2):
             print("   ... making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
             return fixture['Team 2'], fixture['Team 1']
 
-    # todo: Bias teams that share a slot to play an extra match away rather than home
     # correct the team with the most different home vs away count
-    print('   ... {} have scheduled {}h/{}a, {} have scheduled {}h/{}a'.format(team1, team1_home, team1_away, team2, team2_home, team2_away)  )
-    if abs(team1_home - team1_away) > abs(team2_home - team2_away):
+    # teams who share a slot are slightly penalised to bias towards having one more away game than home game
+    team1_shared_slot_penalty = 1 if team1 in teams_sharing_slots else 0
+    team2_shared_slot_penalty = 1 if team2 in teams_sharing_slots else 0
+    msg = '   ... {} have scheduled {}h+{}/{}a, {} have scheduled {}h+{}/{}a'
+    print(msg.format(team1, team1_home, team1_shared_slot_penalty, team1_away,
+                     team2, team2_home, team2_shared_slot_penalty, team2_away)  )
+
+    team1_home_away_diff = abs(team1_home + team1_shared_slot_penalty - team1_away)
+    team2_home_away_diff = abs(team2_home + team2_shared_slot_penalty - team2_away)
+    if team1_home_away_diff > team2_home_away_diff: # correct the most different team
         if team1_home < team1_away:
             return team1, team2
         return team2, team1
@@ -281,31 +302,40 @@ for fixture in fixtures:
         if column_heading == 'Team 1':
             team_stats[team]['home_matches'] += 1
         else:
-            team_stats[team]['away_matches'] += 1
+            # Don't count matches as 'away' if they were played against a team from same club
+            if is_same_club(team, fixture['Team 1']):
+                team_stats[team]['home_matches'] += 1
+            else:
+                team_stats[team]['away_matches'] += 1
 
-print("==========================================================================")
-print(' Summary  -  minimum {} days rest'.format(rest_days))
-print("==========================================================================")
+
 name_pad_len  = max(len(x) for x in team_stats.keys())
-first_fixture = datetime.now() + timedelta(weeks=52)
-last_fixture  = datetime.now() - timedelta(weeks=52)
-for team, stats in team_stats.items():
-    dates = sorted(stats['match_dates'])
-    first_fixture = min(first_fixture, min(dates))
-    last_fixture  = max(last_fixture, max(dates))
-    days_rest = [(date-dates[i]).days for  i, date in enumerate(dates[1:])]
-    print(' {:<{name_pad_len}} : {}h/{}a  {}->{}, rest {} to {} days '.format(
-        team,
-        stats['home_matches'],
-        stats['away_matches'],
-        min(dates).strftime('%d%b'),
-        max(dates).strftime('%d%b'),
-        min(days_rest),
-        max(days_rest),
-        name_pad_len=name_pad_len))
-
-print("")
-print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fixture.strftime(date_format)))
+for division, teams in divisions.items():
+    first_fixture = datetime.now() + timedelta(weeks=52)
+    last_fixture  = datetime.now() - timedelta(weeks=52)
+    print("==========================================================================")
+    print(' Summary of {}  -  minimum {} days rest'.format(division, rest_days))
+    print("==========================================================================")
+    for team in teams:
+        for team_name, stats in team_stats.items():
+            if team == team_name:
+                dates = sorted(stats['match_dates'])
+                first_fixture = min(first_fixture, min(dates))
+                last_fixture  = max(last_fixture, max(dates))
+                days_rest = [(date-dates[i]).days for  i, date in enumerate(dates[1:])]
+                print(' {:<{name_pad_len}} : {}h/{}a  {}->{}, rest {} to {} days '.format(
+                    team,
+                    stats['home_matches'],
+                    stats['away_matches'],
+                    min(dates).strftime('%d%b'),
+                    max(dates).strftime('%d%b'),
+                    min(days_rest),
+                    max(days_rest),
+                    name_pad_len=name_pad_len))
+                break
+    print("")
+    print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fixture.strftime(date_format)))
+    print("")
 print("==========================================================================")
 
 

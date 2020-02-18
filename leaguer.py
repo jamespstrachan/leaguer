@@ -81,7 +81,10 @@ for fixture in fixtures:
     if team not in team_slots:
         raise Exception('Team "{}" have no slot defined in {}'.format(team, slots_filename))
 
-fixtures_scheduled = [{'fixtures': 0, 'slot_date': datetime.strptime(slots[slot_idx]['Date'], date_format), 'team': team}
+fixtures_scheduled = [{'team': team,
+                       'fixtures': 0,
+                       'next_date': datetime.strptime(slots[slot_idx]['Date'], date_format),
+                       }
                       for team, slot_idx in team_slots.items()]
 
 divisions = {}
@@ -116,8 +119,19 @@ def sort_home_away(team1, team2):
     """ choose the home and away team for the given teams at this point in the schedule """
     # if same club, return any
     if is_same_club(team1, team2):
-        print("   ... same club, home/away doesn't matter")
+        print("    same club, home/away doesn't matter")
         return team1, team2
+
+    date_team1 = date_of_next_home_slot(team1)
+    date_team2 = date_of_next_home_slot(team2)
+    lose_home_advantage_after_days = 10
+    if abs((date_team1 - date_team2).days) > lose_home_advantage_after_days:
+        if date_team1 > date_team2:
+            print("    {} can't do home for + {} days longer than {}".format(team1, lose_home_advantage_after_days, team2))
+            return team2, team1
+        else:
+            print("    {} can't do home for + {} days longer than {}".format(team2, lose_home_advantage_after_days, team1))
+            return team1, team2
 
     team1_away, team1_home, team2_away, team2_home = 0,0,0,0
     # if either team played same club already this league, reverse that team's home/away
@@ -127,7 +141,7 @@ def sort_home_away(team1, team2):
         if team1 == fixture['Team 1']:
             team1_home += 1
             if is_same_club(team2, fixture['Team 2']):
-                print('   ... {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
+                print('    {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
                 return team2, team1
         if team1 == fixture['Team 2']:
             # Don't count matches as 'away' if they were played against a team from same club
@@ -137,12 +151,12 @@ def sort_home_away(team1, team2):
                 team1_away += 1
 
             if is_same_club(team2, fixture['Team 1']):
-                print('   ... {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
+                print('    {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
                 return team1, team2
         if team2 == fixture['Team 1']:
             team2_home += 1
             if is_same_club(team1, fixture['Team 2']):
-                print('   ... {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
+                print('    {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
                 return team1, team2
         if team2 == fixture['Team 2']:
             # Don't count matches as 'away' if they were played against a team from same club
@@ -152,13 +166,13 @@ def sort_home_away(team1, team2):
                 team2_away += 1
 
             if is_same_club(team1, fixture['Team 1']):
-                print('   ... {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
+                print('    {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
                 return team2, team1
 
     # if played last year return opposite
     for fixture in old_fixtures:
         if is_same_fixture(team1, team2, fixture):
-            print("   ... making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
+            print("    making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
             return fixture['Team 2'], fixture['Team 1']
 
     # correct the team with the most different home vs away count
@@ -192,6 +206,20 @@ def date_team_last_played(team):
     return last_played
 
 
+def date_of_next_home_slot(team, after_date=None):
+    """ returns a date object for the team's next empty home slot
+    """
+    date_last_played = date_team_last_played(team)
+    date_proposed = datetime.strptime(slots[team_slots[team]]['Date'], date_format)
+    after_date = after_date or date_last_played + rest_delta
+
+    while date_proposed < after_date \
+          or not can_team_play_at_home_on_date(team, 'ANY', date_proposed):
+        date_proposed = date_proposed + timedelta(days=7)
+
+    return date_proposed
+
+
 def can_team_play_at_home_on_date(home_team, away_team, date):
     """ returns True if the team doesn's share its slot with another team.
         returns True if the shared slot isn't booked on that date by the sharing_team, or if the
@@ -209,30 +237,27 @@ def can_team_play_at_home_on_date(home_team, away_team, date):
     return True
 
 
+rest_delta = timedelta(days=rest_days)
 
 def schedule_fixture(fixtures, team1, team2):
     """ returns an updated fixtures list after scheduling the fixture for the supplied teams as early as
         possible
     """
-    print(" + scheduling {} vs {} ...".format(team1, team2))
+    team1_date_last_played = date_team_last_played(team1)
+    team2_date_last_played = date_team_last_played(team2)
+    print("    {} last played {}, {} last played {}".format(team1, team1_date_last_played.strftime(date_format), team2, team2_date_last_played.strftime(date_format)))
+
+    home_team, away_team  = sort_home_away(team1, team2)
+    after_date = max(team1_date_last_played, team2_date_last_played) + rest_delta
+    date_proposed = date_of_next_home_slot(home_team, after_date)
+
     for i, fixture in enumerate(fixtures):
         if is_same_fixture(team1, team2, fixture):
             if fixture['Date']:
-                raise Exception(' ! Fixture for {} vs {} already scheduled for {} {}'.format(team1, team2, fixture['Date'], fixture['Time']))
+                raise Exception('  ! Fixture for {} vs {} already scheduled for {} {}'.format(team1, team2, fixture['Date'], fixture['Time']))
 
-            home_team, away_team  = sort_home_away(team1, team2)
             fixtures[i]['Team 1'] = home_team
             fixtures[i]['Team 2'] = away_team
-
-            slot             = slots[team_slots[home_team]]
-            date_proposed    = datetime.strptime(slot['Date'], date_format)
-            #print('proposing {} based on {}'.format(date_proposed, slot))
-            date_last_played = max(date_team_last_played(home_team), date_team_last_played(away_team))
-            while date_proposed < date_last_played + timedelta(days=rest_days) \
-                  or not can_team_play_at_home_on_date(home_team, away_team, date_proposed):
-                date_proposed = date_proposed + timedelta(days=7)
-                #print('bumping date to {}...'.format(date_proposed))
-
             fixtures[i]['Date']     = date_proposed.strftime(date_format)
             fixtures[i]['Time']     = slot['Time']
             fixtures[i]['Court']    = '1'
@@ -240,8 +265,8 @@ def schedule_fixture(fixtures, team1, team2):
             for j, record in enumerate(fixtures_scheduled):
                 if record['team'] in (home_team, away_team):
                     fixtures_scheduled[j]['fixtures'] += 1
-
-            print("   ... scheduled for {} on {} at {}".format(fixtures[i]['Time'], fixtures[i]['Date'], home_team))
+                    fixtures_scheduled[j]['next_date'] = date_proposed + rest_delta
+            print("    scheduled for {} on {} at {}".format(fixtures[i]['Time'], fixtures[i]['Date'], home_team))
             return
     raise Exception(' ! Fixture for {} vs {} is not in the fixtures.py file'.format(team1, team2))
 
@@ -266,24 +291,36 @@ for division, teams in divisions.items():
                 print(" ! {} and {} must play early".format(team, other_team))
                 schedule_fixture(fixtures, team, other_team)
 
-    num_matches = int((len(teams) * (len(teams)-1)) / 2)
-    for i in range(0, num_matches):
-        fixtures_scheduled.sort(key=lambda x: (x['fixtures'], x['slot_date']))
-#        print(fixtures_scheduled)
-        division_fixtures_scheduled = list(x for x in fixtures_scheduled if x['team'] in teams)
-        team = division_fixtures_scheduled[0]['team']
-
-        for j in range(1, len(teams)):
-            opponent = division_fixtures_scheduled[j]['team']
-            if not is_fixture_scheduled(team, opponent):
-                print('consider {} (played {}) vs {} (played {})'.format(team, division_fixtures_scheduled[0]['fixtures'],
-                                                                     opponent, division_fixtures_scheduled[1]['fixtures']))
-                schedule_fixture(fixtures, team, opponent)
+num_matches = 10 #int((len(teams) * (len(teams)-1)) / 2)
+for i in range(0, num_matches):
+    print("\n\n================================ scheduling matches in batch {}".format(i+1))
+    for division, teams in divisions.items():
+        print("\n{}:".format(division))
+        fixtures_scheduled.sort(key=lambda x: (x['fixtures'], x['next_date']))
+        division_fixtures_scheduled = list(x for x in fixtures_scheduled if x['team'] in teams and x['fixtures'] <= i)
+        while True:
+            chosen_team_details = division_fixtures_scheduled.pop(0)
+            team = chosen_team_details['team']
+            for j in range(0, len(division_fixtures_scheduled)):
+                opponent = division_fixtures_scheduled[j]['team']
+                if not is_fixture_scheduled(team, opponent):
+                    print('\nConsider {} (played {}) vs {} (played {})'.format(team, chosen_team_details['fixtures'],
+                                                                         opponent, division_fixtures_scheduled[j]['fixtures']))
+                    schedule_fixture(fixtures, team, opponent)
+                    division_fixtures_scheduled.pop(j)
+                    break
+            if not len(division_fixtures_scheduled):
                 break
 
-    for fixture in fixtures:
-        if fixture['Draw'] == division and not fixture['Date']:
-            schedule_fixture(fixtures, fixture['Team 1'], fixture['Team 2'])
+# warn about any non-scheduled fixtures
+num_unscheduled = 0
+for fixture in fixtures:
+    if not fixture['Date']:
+        num_unscheduled += 1
+        # schedule_fixture(fixtures, fixture['Team 1'], fixture['Team 2'])
+if num_unscheduled:
+    raise Exception("{} matches unscheduled".format(num_unscheduled))
+
 
 # Sort the fixture list by division then by match date, time
 fixtures = sorted(fixtures, key=lambda row: (row['Draw'], datetime.strptime(row['Date'], date_format), row['Time']))
@@ -313,7 +350,7 @@ name_pad_len  = max(len(x) for x in team_stats.keys())
 for division, teams in divisions.items():
     first_fixture = datetime.now() + timedelta(weeks=52)
     last_fixture  = datetime.now() - timedelta(weeks=52)
-    print("==========================================================================")
+    print("\n==========================================================================")
     print(' Summary of {}  -  minimum {} days rest'.format(division, rest_days))
     print("==========================================================================")
     for team in teams:
@@ -335,10 +372,11 @@ for division, teams in divisions.items():
                 break
     print("")
     print(' runs from {} to {}'.format(first_fixture.strftime(date_format), last_fixture.strftime(date_format)))
-    print("")
-print("==========================================================================")
+
+print("\n==========================================================================")
 
 
+#if False and file_format == 'xlsx': ############### TESTING - REMOVE
 if file_format == 'xlsx':
     with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM') as writer:
         for i, fixture in enumerate(fixtures):

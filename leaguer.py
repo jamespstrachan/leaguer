@@ -26,6 +26,8 @@ slots_filename    = 'slots.{}'.format(file_format)
 date_format       = '%d/%m/%Y'
 newline           = "\r\n"
 dir_path          = os.path.dirname(os.path.realpath(__file__))
+league_start_date = datetime.strptime('24/04/2020', date_format)
+league_end_date   = datetime.strptime('28/06/2020', date_format)
 
 if file_format == 'xlsx':
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
@@ -37,7 +39,7 @@ if file_format == 'xlsx':
     # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(old_fixtures_filename, "rb") as xlsxfile:
         old_fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
-        old_fixtures = fixtures_dataframe.to_dict(orient="records")
+        old_fixtures = old_fixtures_dataframe.to_dict(orient="records")
 
     # make slots list of dicts with keys: Date,Time,Court,Team 1,Team 2
     with open(slots_filename, "rb") as xlsxfile:
@@ -256,8 +258,8 @@ def schedule_fixture(fixtures, team1, team2):
             if fixture['Date']:
                 raise Exception('  ! Fixture for {} vs {} already scheduled for {} {}'.format(team1, team2, fixture['Date'], fixture['Time']))
 
-            fixtures[i]['Team 1'] = home_team
-            fixtures[i]['Team 2'] = away_team
+            fixtures[i]['Team 1']   = home_team
+            fixtures[i]['Team 2']   = away_team
             fixtures[i]['Date']     = date_proposed.strftime(date_format)
             fixtures[i]['Time']     = slot['Time']
             fixtures[i]['Court']    = '1'

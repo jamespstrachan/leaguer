@@ -83,11 +83,11 @@ for fixture in fixtures:
     if team not in team_slots:
         raise Exception('Team "{}" have no slot defined in {}'.format(team, slots_filename))
 
-fixtures_scheduled = [{'team': team,
-                       'fixtures': 0,
-                       'next_date': datetime.strptime(slots[slot_idx]['Date'], date_format),
-                       }
-                      for team, slot_idx in team_slots.items()]
+team_progress = [{'team': team,
+                  'fixtures': 0,
+                  'next_date': datetime.strptime(slots[slot_idx]['Date'], date_format),
+                  }
+                  for team, slot_idx in team_slots.items()]
 
 divisions = {}
 for fixture in fixtures:
@@ -97,6 +97,17 @@ for fixture in fixtures:
         divisions[draw] = []
     if team not in divisions[draw]:
         divisions[draw].append(team)
+
+log_for_division = []
+division_logs = {}
+def division_log(message, division=None):
+    if division:
+        log_for_division.append(division)
+    if not len(log_for_division):
+        raise Exception('no division set for logging')
+    if log_for_division[-1] not in division_logs:
+        division_logs[log_for_division[-1]] = []
+    division_logs[log_for_division[-1]].append(message)
 
 
 def is_same_club(team1, team2):
@@ -121,7 +132,7 @@ def sort_home_away(team1, team2):
     """ choose the home and away team for the given teams at this point in the schedule """
     # if same club, return any
     if is_same_club(team1, team2):
-        print("    same club, home/away doesn't matter")
+        division_log("    same club, home/away doesn't matter")
         return team1, team2
 
     date_team1 = date_of_next_home_slot(team1)
@@ -129,10 +140,10 @@ def sort_home_away(team1, team2):
     lose_home_advantage_after_days = 10
     if abs((date_team1 - date_team2).days) > lose_home_advantage_after_days:
         if date_team1 > date_team2:
-            print("    {} can't do home for + {} days longer than {}".format(team1, lose_home_advantage_after_days, team2))
+            division_log("    {} can't do home for + {} days longer than {}".format(team1, lose_home_advantage_after_days, team2))
             return team2, team1
         else:
-            print("    {} can't do home for + {} days longer than {}".format(team2, lose_home_advantage_after_days, team1))
+            division_log("    {} can't do home for + {} days longer than {}".format(team2, lose_home_advantage_after_days, team1))
             return team1, team2
 
     team1_away, team1_home, team2_away, team2_home = 0,0,0,0
@@ -143,7 +154,7 @@ def sort_home_away(team1, team2):
         if team1 == fixture['Team 1']:
             team1_home += 1
             if is_same_club(team2, fixture['Team 2']):
-                print('    {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
+                division_log('    {} already hosted {}, making them play {} away'.format(team1, fixture['Team 2'], team2))
                 return team2, team1
         if team1 == fixture['Team 2']:
             # Don't count matches as 'away' if they were played against a team from same club
@@ -153,12 +164,12 @@ def sort_home_away(team1, team2):
                 team1_away += 1
 
             if is_same_club(team2, fixture['Team 1']):
-                print('    {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
+                division_log('    {} already played away against {}, making them play {} at home'.format(team1, fixture['Team 1'], team2))
                 return team1, team2
         if team2 == fixture['Team 1']:
             team2_home += 1
             if is_same_club(team1, fixture['Team 2']):
-                print('    {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
+                division_log('    {} already hosted {}, making them play {} away'.format(team2, fixture['Team 2'], team1))
                 return team1, team2
         if team2 == fixture['Team 2']:
             # Don't count matches as 'away' if they were played against a team from same club
@@ -168,25 +179,27 @@ def sort_home_away(team1, team2):
                 team2_away += 1
 
             if is_same_club(team1, fixture['Team 1']):
-                print('    {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
+                division_log('    {} already played away against {}, making them play {} at home'.format(team2, fixture['Team 1'], team1))
                 return team2, team1
 
     # if played last year return opposite
     for fixture in old_fixtures:
         if is_same_fixture(team1, team2, fixture):
-            print("    making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
+            division_log("    making {} home team as previous fixture was played at {}".format(fixture['Team 2'], fixture['Team 1']))
             return fixture['Team 2'], fixture['Team 1']
 
     # correct the team with the most different home vs away count
     # teams who share a slot are slightly penalised to bias towards having one more away game than home game
     team1_shared_slot_penalty = 1 if team1 in teams_sharing_slots else 0
     team2_shared_slot_penalty = 1 if team2 in teams_sharing_slots else 0
-    msg = '   ... {} have scheduled {}h+{}/{}a, {} have scheduled {}h+{}/{}a'
-    print(msg.format(team1, team1_home, team1_shared_slot_penalty, team1_away,
+    msg = '    {} have scheduled {}h+{}/{}a, {} have scheduled {}h+{}/{}a'
+    division_log(msg.format(team1, team1_home, team1_shared_slot_penalty, team1_away,
                      team2, team2_home, team2_shared_slot_penalty, team2_away)  )
 
     team1_home_away_diff = abs(team1_home + team1_shared_slot_penalty - team1_away)
     team2_home_away_diff = abs(team2_home + team2_shared_slot_penalty - team2_away)
+
+
     if team1_home_away_diff > team2_home_away_diff: # correct the most different team
         if team1_home < team1_away:
             return team1, team2
@@ -234,7 +247,7 @@ def can_team_play_at_home_on_date(home_team, away_team, date):
     if sharing_team and sharing_team != away_team: # if the sharing_team is the away_team that's fine!
         for fixture in fixtures:
             if fixture['Date'] == date.strftime(date_format) and fixture['Team 1'] == sharing_team:
-                print('   ... {} are using the slot shared with {} on {}'.format(sharing_team, home_team, date.strftime(date_format)))
+                division_log('   ... {} are using the slot shared with {} on {}'.format(sharing_team, home_team, date.strftime(date_format)))
                 return False
     return True
 
@@ -247,7 +260,7 @@ def schedule_fixture(fixtures, team1, team2):
     """
     team1_date_last_played = date_team_last_played(team1)
     team2_date_last_played = date_team_last_played(team2)
-    print("    {} last played {}, {} last played {}".format(team1, team1_date_last_played.strftime(date_format), team2, team2_date_last_played.strftime(date_format)))
+    division_log("    {} last played {}, {} last played {}".format(team1, team1_date_last_played.strftime(date_format), team2, team2_date_last_played.strftime(date_format)))
 
     home_team, away_team  = sort_home_away(team1, team2)
     after_date = max(team1_date_last_played, team2_date_last_played) + rest_delta
@@ -264,11 +277,11 @@ def schedule_fixture(fixtures, team1, team2):
             fixtures[i]['Time']     = slot['Time']
             fixtures[i]['Court']    = '1'
             fixtures[i]['Location'] = 'Main Location'
-            for j, record in enumerate(fixtures_scheduled):
+            for j, record in enumerate(team_progress):
                 if record['team'] in (home_team, away_team):
-                    fixtures_scheduled[j]['fixtures'] += 1
-                    fixtures_scheduled[j]['next_date'] = date_proposed + rest_delta
-            print("    scheduled for {} on {} at {}".format(fixtures[i]['Time'], fixtures[i]['Date'], home_team))
+                    team_progress[j]['fixtures'] += 1
+                    team_progress[j]['next_date'] = date_proposed + rest_delta
+            division_log("    scheduled for {} on {} at {}".format(fixtures[i]['Time'], fixtures[i]['Date'], home_team))
             return
     raise Exception(' ! Fixture for {} vs {} is not in the fixtures.py file'.format(team1, team2))
 
@@ -282,37 +295,39 @@ def find_unplayed_opponent(fixtures, team):
 
 
 for division, teams in divisions.items():
-    print("==========================================================================")
-    print(" {} has {} teams:".format(division, len(teams)))
-    print(' '+', '.join(teams))
-    print("==========================================================================")
+    division_log("==========================================================================", division=division)
+    division_log(" {} has {} teams:".format(division, len(teams)))
+    division_log(' '+', '.join(teams))
+    division_log("==========================================================================")
 
     for i, team in enumerate(teams[0:-1], 1):
         for other_team in teams[i:]:
             if is_same_club(team, other_team) and team != other_team:
-                print(" ! {} and {} must play early".format(team, other_team))
+                division_log("{} and {} must play early".format(team, other_team))
                 schedule_fixture(fixtures, team, other_team)
 
 num_matches = 10 #int((len(teams) * (len(teams)-1)) / 2)
 for i in range(0, num_matches):
-    print("\n\n================================ scheduling matches in batch {}".format(i+1))
     for division, teams in divisions.items():
-        print("\n{}:".format(division))
-        fixtures_scheduled.sort(key=lambda x: (x['fixtures'], x['next_date']))
-        division_fixtures_scheduled = list(x for x in fixtures_scheduled if x['team'] in teams and x['fixtures'] <= i)
+        division_log("\n Round {}:".format(i+1), division=division)
+        team_progress.sort(key=lambda x: (x['fixtures'], x['next_date']))
+        division_team_progress = list(x for x in team_progress if x['team'] in teams and x['fixtures'] <= i)
         while True:
-            chosen_team_details = division_fixtures_scheduled.pop(0)
+            chosen_team_details = division_team_progress.pop(0)
             team = chosen_team_details['team']
-            for j in range(0, len(division_fixtures_scheduled)):
-                opponent = division_fixtures_scheduled[j]['team']
+            for j in range(0, len(division_team_progress)):
+                opponent = division_team_progress[j]['team']
                 if not is_fixture_scheduled(team, opponent):
-                    print('\nConsider {} (played {}) vs {} (played {})'.format(team, chosen_team_details['fixtures'],
-                                                                         opponent, division_fixtures_scheduled[j]['fixtures']))
+                    division_log('\nConsider {} (played {}) vs {} (played {})'.format(team, chosen_team_details['fixtures'],
+                                                                         opponent, division_team_progress[j]['fixtures']))
                     schedule_fixture(fixtures, team, opponent)
-                    division_fixtures_scheduled.pop(j)
+                    division_team_progress.pop(j)
                     break
-            if not len(division_fixtures_scheduled):
+            if not len(division_team_progress):
                 break
+
+for division, logs in division_logs.items():
+    print('\n'.join(logs))
 
 # warn about any non-scheduled fixtures
 num_unscheduled = 0

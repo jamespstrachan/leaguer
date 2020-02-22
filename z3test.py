@@ -5,7 +5,14 @@ teams = (
     'Huntingdon',
     'Royston',
     'Cocks & Hens',
+    'Barrington',
+    'Ely',
+    'Stow-cum-quy',
+    '10is Academy',
 )
+
+weeks = range(1, len(teams)+1)
+
 
 class Division():
 
@@ -13,52 +20,66 @@ class Division():
         self.name = name
         self.teams = teams
 
-divisions = []
-for div_number in range(1,5):
-    divisions.append(Division(f'Mens {div_number}', f'{team} {div_number}') for team in teams)
 
-#teams = [str(i) for i in range(1,17)]
-weeks = range(1, len(teams)+1)
+divisions = [Division(f'Mens {div_number}', [f'{team} {div_number}' for team in teams])
+             for div_number in range(1, 3)]
+
 
 def make_fixtures(teams):
     return dict(((home_team, week), Int(f'{home_team}_week{week}_opponent'))
                 for i, home_team in enumerate(teams)
                 for week in weeks)
 
-fixtures = make_fixtures(teams)
+
+fixtures_by_division = [(division, make_fixtures(division.teams)) for division in divisions]
+
+#fixtures = make_fixtures(teams)
 
 def extract_all_opponents(fixtures_dict, home_team):
     for week in weeks:
         yield fixtures_dict[home_team, week]
 
-def extract_all_away_teams(fixtures_dict, week):
+def extract_all_away_teams(fixtures_dict, week, teams):
     for home_team in teams:
         yield fixtures_dict[home_team, week]
 
+def condition_match_happens(fixtures, teams):
+    match_happens = []
+    for home_team in teams:
+        opponents = list(extract_all_opponents(fixtures, home_team))
+        for i, away_team in enumerate(teams):
+            if away_team == home_team:
+                continue
+            match_happens.append(Or(*(opponent == i for opponent in opponents)))
+    return And(*match_happens)
 
-match_happens = []
-for home_team in teams:
-    opponents = list(extract_all_opponents(fixtures, home_team))
-    for i, away_team in enumerate(teams):
-        if away_team == home_team:
-            continue
-        match_happens.append(Or(*(opponent == i for opponent in opponents)))
+def condition_not_playing_twice_away(fixtures, teams):
+    not_playing_twice = []
+    for week in weeks:
+        away_teams = list(extract_all_away_teams(fixtures, week, teams))
+        for i, away_team1 in enumerate(away_teams):
+            for away_team2 in away_teams[i+1:]:
+                not_playing_twice.append(away_team1 != away_team2)
+    return And(*not_playing_twice)
 
-not_playing_twice = []
-for week in weeks:
-    away_teams = list(extract_all_away_teams(fixtures, week))
-    for i, away_team1 in enumerate(away_teams):
-        for away_team2 in away_teams[i+1:]:
-            not_playing_twice.append(away_team1 != away_team2)
 
-is_valid_opponent = And(*(And(0 <= f, f < len(teams)) for f in fixtures.values()))
-not_playing_twice = And(*not_playing_twice)
-all_teams_play = And(*match_happens)
+def condition_is_valid_opponent(fixtures, teams):
+    return And(*(And(0 <= f, f < len(teams)) for f in fixtures.values()))
+
+
+def conditions_for_division(fixtures, teams):
+    return And(condition_is_valid_opponent(fixtures, teams),
+               condition_not_playing_twice_away(fixtures, teams),
+               condition_match_happens(fixtures, teams)
+                )
 
 s = Solver()
-s.add(is_valid_opponent, all_teams_play, not_playing_twice)
-s.check()
-m = s.model()
-for team in teams:
-    print(f"{team:>20} : ", end='')
-    print('\t '.join(str(m[fixtures[team,week]]) for week in weeks))
+for division, fixtures in fixtures_by_division:
+    s.add(conditions_for_division(fixtures, division.teams))
+    print(s.check())
+    m = s.model()
+    for division, fixtures in fixtures_by_division:
+        print(division.name)
+        for team in division.teams:
+            print(f"{team:>20} : ", end='')
+            print('\t '.join(str(m[fixtures[team,week]]) for week in weeks))

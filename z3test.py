@@ -1,4 +1,4 @@
-from z3 import Int, Solver, Or, And
+from z3 import Int, Solver, Or, And, Not
 
 teams = (
     'Cambridge',
@@ -11,7 +11,7 @@ teams = (
     '10is Academy',
 )
 
-weeks = range(1, len(teams)+1)
+weeks = range(1, len(teams)*2)
 
 
 class Division():
@@ -59,19 +59,37 @@ def condition_not_playing_twice_away(fixtures, teams):
         away_teams = list(extract_all_away_teams(fixtures, week, teams))
         for i, away_team1 in enumerate(away_teams):
             for away_team2 in away_teams[i+1:]:
-                not_playing_twice.append(away_team1 != away_team2)
+                not_playing_twice.append(Or(away_team1 != away_team2, away_team1 == -1))
     return And(*not_playing_twice)
 
 
+def condition_not_playing_home_and_away(fixtures, teams):
+    def is_playing_at_home(fixtures, week, team):
+        return fixtures[team, week] != -1
+
+    def is_playing_away(fixtures, week, team_idx):
+        return Or(*(fixtures[home_team, week] == team_idx for home_team in teams))
+
+    c = And(*(Not(And(is_playing_at_home(fixtures, week, team),
+                      is_playing_away(fixtures, week, team_idx)))
+                for week in weeks
+                for team_idx, team in enumerate(teams)
+               ))
+    #print(c)
+    return c
+
+
 def condition_is_valid_opponent(fixtures, teams):
-    return And(*(And(0 <= f, f < len(teams)) for f in fixtures.values()))
+    return And(*(And(-1 <= f, f < len(teams)) for f in fixtures.values()))
 
 
 def conditions_for_division(fixtures, teams):
-    return And(condition_is_valid_opponent(fixtures, teams),
+    return And(
+               condition_is_valid_opponent(fixtures, teams),
                condition_not_playing_twice_away(fixtures, teams),
-               condition_match_happens(fixtures, teams)
-                )
+               condition_match_happens(fixtures, teams),
+               condition_not_playing_home_and_away(fixtures, teams),
+               )
 
 s = Solver()
 for division, fixtures in fixtures_by_division:

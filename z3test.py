@@ -11,7 +11,7 @@ teams = (
     '10is Academy',
 )
 
-weeks = range(1, len(teams)*2)
+weeks = range(1, len(teams))
 
 
 class Division():
@@ -33,8 +33,6 @@ def make_fixtures(teams):
 
 fixtures_by_division = [(division, make_fixtures(division.teams)) for division in divisions]
 
-#fixtures = make_fixtures(teams)
-
 def extract_all_opponents(fixtures_dict, home_team):
     for week in weeks:
         yield fixtures_dict[home_team, week]
@@ -45,12 +43,13 @@ def extract_all_away_teams(fixtures_dict, week, teams):
 
 def condition_match_happens(fixtures, teams):
     match_happens = []
-    for home_team in teams:
-        opponents = list(extract_all_opponents(fixtures, home_team))
-        for i, away_team in enumerate(teams):
-            if away_team == home_team:
-                continue
-            match_happens.append(Or(*(opponent == i for opponent in opponents)))
+    for team1_idx, team1 in enumerate(teams):
+        for team2_idx, team2 in list(enumerate(teams))[team1_idx+1:]:
+            match_happens_team1_home = Or(*(fixtures[team1, week] == team2_idx for week in weeks))
+            match_happens_team2_home = Or(*(fixtures[team2, week] == team1_idx for week in weeks))
+            match_happens_at_all        = Or(match_happens_team1_home, match_happens_team2_home)
+            match_happens_home_and_away = And(match_happens_team1_home, match_happens_team2_home)
+            match_happens.append(And(match_happens_at_all, Not(match_happens_home_and_away)))
     return And(*match_happens)
 
 def condition_not_playing_twice_away(fixtures, teams):

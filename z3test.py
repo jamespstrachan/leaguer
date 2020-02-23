@@ -11,7 +11,11 @@ teams = (
     '10is Academy',
 )
 
-weeks = range(1, len(teams))
+def ceil(a, b):
+    """ dividies int a by int b rounded up """
+    return -(-a // b)
+
+weeks = range(1, 2*ceil(len(teams), 2))
 
 
 class Division():
@@ -90,7 +94,7 @@ def condition_not_playing_home_and_away(fixtures, teams):
 
 def condition_play_equal_home_away(fixtures, teams):
     from itertools import combinations
-    min_number_home_games = int(len(weeks)/2)
+    min_number_home_games = (len(teams)-1)//2
     all_played_half_both = []
     for team in teams:
         team_played_half_both = []
@@ -100,9 +104,7 @@ def condition_play_equal_home_away(fixtures, teams):
             played_half_away = Or(*(And(*(fixtures[team, week] == -1 for week in away_weeks))
                                   for away_weeks in combinations(other_weeks, min_number_home_games)
                                   ))
-
             team_played_half_both.append(And(played_half_home, played_half_away))
-            #raise Exception(played_half_both)
         all_played_half_both.append(Or(*team_played_half_both))
     return  And(*all_played_half_both)
 

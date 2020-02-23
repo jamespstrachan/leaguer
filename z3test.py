@@ -30,6 +30,18 @@ def make_fixtures(teams):
                 for i, home_team in enumerate(teams)
                 for week in weeks)
 
+""" sketch of make triangle
+for teams:
+    for others[j:]:
+        triangle <= (home_team, away_team), Int('week_of_{home}_plays_{away}')
+
+for week in weeks:
+    for home_team_idx, home_team:
+        for away_team_idx, away_team:
+            (fixtures[home_team, week] == away_team_idx) == (triangle[home_team, away_team] == week)
+"""
+
+
 
 fixtures_by_division = [(division, make_fixtures(division.teams)) for division in divisions]
 
@@ -69,13 +81,30 @@ def condition_not_playing_home_and_away(fixtures, teams):
     def is_playing_away(fixtures, week, team_idx):
         return Or(*(fixtures[home_team, week] == team_idx for home_team in teams))
 
-    c = And(*(Not(And(is_playing_at_home(fixtures, week, team),
+    return And(*(Not(And(is_playing_at_home(fixtures, week, team),
                       is_playing_away(fixtures, week, team_idx)))
                 for week in weeks
                 for team_idx, team in enumerate(teams)
                ))
-    #print(c)
-    return c
+
+
+def condition_play_equal_home_away(fixtures, teams):
+    from itertools import combinations
+    min_number_home_games = int(len(weeks)/2)
+    all_played_half_both = []
+    for team in teams:
+        team_played_half_both = []
+        for home_weeks in combinations(weeks, min_number_home_games):
+            played_half_home = And(*(fixtures[team, week] != -1 for week in home_weeks))
+            other_weeks = [week for week in weeks if week not in home_weeks]
+            played_half_away = Or(*(And(*(fixtures[team, week] == -1 for week in away_weeks))
+                                  for away_weeks in combinations(other_weeks, min_number_home_games)
+                                  ))
+
+            team_played_half_both.append(And(played_half_home, played_half_away))
+            #raise Exception(played_half_both)
+        all_played_half_both.append(Or(*team_played_half_both))
+    return  And(*all_played_half_both)
 
 
 def condition_is_valid_opponent(fixtures, teams):
@@ -88,6 +117,8 @@ def conditions_for_division(fixtures, teams):
                condition_not_playing_twice_away(fixtures, teams),
                condition_match_happens(fixtures, teams),
                condition_not_playing_home_and_away(fixtures, teams),
+               condition_play_equal_home_away(fixtures, teams),
+               True
                )
 
 s = Solver()

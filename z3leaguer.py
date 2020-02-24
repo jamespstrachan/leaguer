@@ -180,7 +180,7 @@ def condition_same_club_teams_play_first(grid, teams):
         for team2 in teams[i+1:]:
             if is_same_club(team1, team2):
                 week = max(team_can_play_on_week[team1], team_can_play_on_week[team2])
-                same_club.append(grid[team1, team2, week] == True)
+                same_club.append(Or(grid[team1, team2, week] == True, grid[team2, team1, week] == True))
                 team_can_play_on_week[team1] = week + 1
                 team_can_play_on_week[team2] = week + 1
     return And(*same_club)
@@ -216,7 +216,7 @@ def conditions_for_division(grid, teams):
 
 def conditions_between_divisions(grids_by_division):
     return And(
-               #condition_shared_slot_not_double_booked(grids_by_division),
+               condition_shared_slot_not_double_booked(grids_by_division),
                True)
 
 solver = Solver()
@@ -233,13 +233,15 @@ model = solver.model()
 def match_date(home_team, week):
     return slots[team_slots[home_team]]['Date'] + timedelta(days=7*week)
 
+
+scheduled_matches = {}
 for division, grid in grids_by_division.items():
     print(f"= {division} =========== ")
     teams = teams_by_division[division]
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
     print('\t'.join(f'({idx+1})' for idx in range(0, len(teams))))
     for home_idx, home_team in enumerate(teams):
-        matches = {i: match_date(home_team, week).strftime('%d%b')
+        matches = {i: match_date(home_team, week)
                    for i, away_team in enumerate(teams)
                    for week in weeks
                    if model[grid[home_team, away_team, week]]}
@@ -247,10 +249,47 @@ for division, grid in grids_by_division.items():
         print(f"({home_idx+1}){home_team:>31} :", end='')
         for i in range(0, len(teams)):
             if i in matches:
-                print(f'\t{matches[i]}', end='')
+                scheduled_matches[home_team, teams[i]] = matches[i]
+                print(f'\t{matches[i].strftime("%d%b")}', end='')
             else:
                 print('\t -', end='')
         print('')
     print('')
 
 
+for fixture in fixtures:
+    team1 = fixture['Team 1']
+    team2 = fixture['Team 2']
+
+    if (team1, team2) in scheduled_matches:
+        fixture['Team 1']   = team1
+        fixture['Team 2']   = team2
+        fixture['Date']     = scheduled_matches[team1, team2].strftime(date_format)
+        fixture['Time']     = slots[team_slots[team1]]['Time']
+    elif (team2, team1) in scheduled_matches:
+        fixture['Team 1']   = team2
+        fixture['Team 2']   = team1
+        fixture['Date']     = scheduled_matches[team2, team1].strftime(date_format)
+        fixture['Time']     = slots[team_slots[team2]]['Time']
+    else:
+        raise Exception(f'Match between {team1} and {team2} not found in scheduled matches list')
+        pass
+
+    fixture['Court']    = '1'
+    fixture['Location'] = 'Main Location'
+
+
+# if False and file_format == 'xlsx': ############### TESTING - REMOVE
+if file_format == 'xlsx':
+    with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM') as writer:
+        for i, fixture in enumerate(fixtures):
+            fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
+        dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
+        dataframe.to_excel(writer, index=False)
+else:
+    with open(os.path.join(dir_path, output_filename), 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fixture_file_headers, delimiter=',', quotechar='"')
+        writer.writeheader()
+        for fixture in fixtures:
+            writer.writerow(fixture)

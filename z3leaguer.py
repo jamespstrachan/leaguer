@@ -57,27 +57,22 @@ else:
 fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
 
 
+for slot in slots:
+    if slot['Date']:
+        slot['Date'] = datetime.strptime(slot['Date'], date_format)
+
 team_slots = {}
-teams_sharing_slots = []
 for fixture in fixtures:
     team = fixture['Team 1']
     if team in team_slots:
         continue
     for i, slot in enumerate(slots):
         if team in (slot['Team 1'], slot['Team 2']):
-            if slot['Team 2']:
-                teams_sharing_slots.append(slot['Team 1'])
-                teams_sharing_slots.append(slot['Team 2'])
             team_slots[team] = i
             break
     if team not in team_slots:
         raise Exception('Team "{}" have no slot defined in {}'.format(team, slots_filename))
 
-team_progress = [{'team': team,
-                  'fixtures': 0,
-                  'next_date': datetime.strptime(slots[slot_idx]['Date'], date_format),
-                  }
-                  for team, slot_idx in team_slots.items()]
 
 teams_by_division = {}
 division_for_team = {}
@@ -140,6 +135,38 @@ def condition_play_once_per_week(grid, teams):
                 play_once.append(Implies(this_match, Not(any_other_match_this_week)))
     return And(*play_once)
 
+
+def condition_enough_rest(grid, teams):
+    enough_rest = []
+    rest_period = timedelta(days=rest_days)
+    for week in weeks[:-1]: # don't check future rest for final week's fixtures
+        home_dates_by_team = {team: slots[team_slots[team]]['Date'] + timedelta(days=7*week) for team in teams}
+        for home_team in teams:
+            for away_team in teams:
+                this_match_date = home_dates_by_team[home_team]
+                home_team_plays_away_too_soon = []
+                away_team_plays_away_too_soon = []
+                for next_team in teams:
+                    next_match_date = home_dates_by_team[next_team] + timedelta(days=7)
+                    if next_match_date < this_match_date + rest_period:
+                        home_team_plays_away_too_soon.append(grid[next_team, home_team, week+1])
+                        away_team_plays_away_too_soon.append(grid[next_team, away_team, week+1])
+
+                next_away_home_date = home_dates_by_team[away_team] + timedelta(days=7)
+                away_team_plays_at_home_too_soon = False
+                if next_away_home_date < this_match_date + rest_period:
+                    away_team_plays_at_home_too_soon = Or(*(grid[away_team, next_team, week+1] for next_team in teams))
+
+                this_match             = grid[home_team, away_team, week]
+                # we don't worry about home_team playing at home too soon as that's their weekly
+                # and we expect them to be prepared to play back-to-back home matches
+                matches_too_soon_after = Or(*home_team_plays_away_too_soon,
+                                            *away_team_plays_away_too_soon,
+                                            away_team_plays_at_home_too_soon)
+                enough_rest.append(Implies(this_match, Not(matches_too_soon_after)))
+    return And(*enough_rest)
+
+
 def condition_shared_slot_not_double_booked(grids_by_division):
     not_double_booked = []
     for slot in slots:
@@ -163,12 +190,14 @@ def conditions_for_division(grid, teams):
     return And(
                condition_match_happens_once(grid, teams),
                condition_play_once_per_week(grid, teams),
-               # condition_play_equal_home_away(grid, teams),
+               condition_enough_rest(grid, teams),
                True
                )
 
 def conditions_between_divisions(grids_by_division):
-    return And(condition_shared_slot_not_double_booked(grids_by_division))
+    return And(
+               condition_shared_slot_not_double_booked(grids_by_division),
+               True)
 
 solver = Solver()
 for division, grid in grids_by_division.items():
@@ -180,17 +209,25 @@ solver.add(conditions_between_divisions(grids_by_division))
 print(solver.check())
 model = solver.model()
 
+
+def match_date(home_team, week):
+    return slots[team_slots[home_team]]['Date'] + timedelta(days=7*week)
+
 for division, grid in grids_by_division.items():
     print(f"= {division} =========== ")
     teams = teams_by_division[division]
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
     print('\t'.join(f'({idx+1})' for idx in range(0, len(teams))))
     for home_idx, home_team in enumerate(teams):
-        matches = {i: week for i, away_team in enumerate(teams) for week in weeks if model[grid[home_team, away_team, week]]}
+        matches = {i: match_date(home_team, week).strftime('%d%b')
+                   for i, away_team in enumerate(teams)
+                   for week in weeks
+                   if model[grid[home_team, away_team, week]]}
+
         print(f"({home_idx+1}){home_team:>31} :", end='')
-        for idx in range(0, len(teams)):
-            if idx in matches:
-                print(f'\twk{matches[idx]}', end='')
+        for i in range(0, len(teams)):
+            if i in matches:
+                print(f'\t{matches[i]}', end='')
             else:
                 print('\t -', end='')
         print('')

@@ -92,7 +92,7 @@ for fixture in fixtures:
 # }
 # teams_by_division = limited_teams_by_division
 
-weeks = range(1, 10)
+weeks = range(0, 9)
 
 grids_by_division = {}
 for division, teams in teams_by_division.items():
@@ -167,6 +167,23 @@ def condition_enough_rest(grid, teams):
     return And(*enough_rest)
 
 
+def is_same_club(team1, team2):
+    """ returns true if the club names are identical except for the trailing team number"""
+    return team1[0:-2] == team2[0:-2]
+
+def condition_same_club_teams_play_first(grid, teams):
+    same_club = []
+    team_can_play_on_week = {team: weeks[0] for team in teams}
+    for i, team1 in enumerate(teams):
+        for team2 in teams[i+1:]:
+            if is_same_club(team1, team2):
+                week = max(team_can_play_on_week[team1], team_can_play_on_week[team2])
+                same_club.append(grid[team1, team2, week] == True)
+                team_can_play_on_week[team1] = week + 1
+                team_can_play_on_week[team2] = week + 1
+    return And(*same_club)
+
+
 def condition_shared_slot_not_double_booked(grids_by_division):
     not_double_booked = []
     for slot in slots:
@@ -191,18 +208,19 @@ def conditions_for_division(grid, teams):
                condition_match_happens_once(grid, teams),
                condition_play_once_per_week(grid, teams),
                condition_enough_rest(grid, teams),
+               condition_same_club_teams_play_first(grid, teams),
                True
                )
 
 def conditions_between_divisions(grids_by_division):
     return And(
-               condition_shared_slot_not_double_booked(grids_by_division),
+               #condition_shared_slot_not_double_booked(grids_by_division),
                True)
 
 solver = Solver()
 for division, grid in grids_by_division.items():
     solver.add(conditions_for_division(grid, teams_by_division[division]))
-    print(solver.check())
+    print('{}: {}'.format(division, solver.check()))
     model = solver.model()
 
 solver.add(conditions_between_divisions(grids_by_division))

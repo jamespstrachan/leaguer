@@ -1,2 +1,3 @@
 pandas
 openpyxl
+z3-solver

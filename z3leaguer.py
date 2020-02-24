@@ -277,26 +277,6 @@ for division, (grid, match_week, away_team_grid, home_team_grid) in grids_by_div
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
     print('\t'.join(f'({idx+1})' for idx in range(0, len(teams))))
     for home_idx, home_team in enumerate(teams):
-        matches = {i: match_date(home_team, week).strftime('%d%b')
-                   for i, away_team in enumerate(teams)
-                   for week in weeks
-                   if model[grid[home_team, away_team, week]]}
-
-        print(f"({home_idx+1}){home_team:>31} :", end='')
-        for i in range(0, len(teams)):
-            if i in matches:
-                print(f'\t{matches[i]}', end='')
-            else:
-                print('\t -', end='')
-        print('')
-    print('')
-
-for division, (grid, match_week, away_team_grid, home_team_grid) in grids_by_division.items():
-    print(f"= {division} =========== ")
-    teams = teams_by_division[division]
-    print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
-    print('\t'.join(f'({idx+1})' for idx in range(0, len(teams))))
-    for home_idx, home_team in enumerate(teams):
         print(f"({home_idx+1}){home_team:>31} :", end='')
         for away_team in teams:
             week = model[match_week[home_team, away_team]].as_long()

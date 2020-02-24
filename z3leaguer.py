@@ -4,7 +4,7 @@ import pandas
 from datetime import datetime, timedelta
 import os
 
-from z3 import Bool, Solver, And, Or, Not, Implies
+from z3 import Bool, Solver, And, Or, Not, Implies, Int
 
 file_format       = 'xlsx'
 # file_format      = 'csv'
@@ -99,13 +99,40 @@ for fixture in fixtures:
 grids_by_division = {}
 for division, teams in teams_by_division.items():
     grid = {}
+    match_week = {}
     for home_team in teams:
         for away_team in teams:
+            match_week[home_team, away_team] = Int(f'{home_team}_vs_{away_team}_in_week')
             for week in weeks:
                 grid[home_team, away_team, week] = Bool(f'{home_team}_vs_{away_team}_week_{week}')
-    grids_by_division[division] = grid
+    grids_by_division[division] = (grid, match_week)
 
 
+
+def condition_grid_match_week(grid, match_week, teams):
+    return And(*(grid[home_team, away_team, week] == (match_week[home_team, away_team] == week)
+                 for home_team in teams
+                 for away_team in teams
+                 for week in weeks))
+
+def condition_not_both_home_away(match_week, teams):
+    return And(*(Or(match_week[team1, team2] == -1,
+                    match_week[team2, team1] == -1)
+                 for team1 in teams
+                 for team2 in teams))
+
+def condition_one_of_home_away(match_week, teams):
+    return And(*((match_week[team1, team2] == -1)
+                 != (match_week[team2, team1] == -1)
+                 for team1 in teams
+                 for team2 in teams
+                 if team1 != team2))
+
+def condition_match_week_valid(match_week, teams):
+    return And(*(And(match_week[team1, team2] >= -1,
+                     match_week[team1, team2] <= max(weeks))
+                 for team1 in teams
+                 for team2 in teams))
 
 def condition_match_happens_once(grid, teams):
     pairing_happens = []
@@ -205,12 +232,16 @@ def condition_shared_slot_not_double_booked(grids_by_division):
             not_double_booked.append(Not(And(team1_at_home, team2_at_home)))
     return And(*not_double_booked)
 
-def conditions_for_division(grid, teams):
+def conditions_for_division(grid, match_week, teams):
     return And(
-               condition_match_happens_once(grid, teams),
+#               condition_match_happens_once(grid, teams),
                condition_play_once_per_week(grid, teams),
                condition_enough_rest(grid, teams),
                condition_same_club_teams_play_first(grid, teams),
+               condition_grid_match_week(grid, match_week, teams),
+               condition_not_both_home_away(match_week, teams),
+               condition_one_of_home_away(match_week, teams),
+               condition_match_week_valid(match_week, teams),
                True
                )
 
@@ -220,8 +251,8 @@ def conditions_between_divisions(grids_by_division):
                True)
 
 solver = Solver()
-for division, grid in grids_by_division.items():
-    solver.add(conditions_for_division(grid, teams_by_division[division]))
+for division, (grid, match_week) in grids_by_division.items():
+    solver.add(conditions_for_division(grid, match_week, teams_by_division[division]))
     print('{}: {}'.format(division, solver.check()))
     model = solver.model()
 
@@ -233,7 +264,7 @@ model = solver.model()
 def match_date(home_team, week):
     return slots[team_slots[home_team]]['Date'] + timedelta(days=7*week)
 
-for division, grid in grids_by_division.items():
+for division, (grid, match_week) in grids_by_division.items():
     print(f"= {division} =========== ")
     teams = teams_by_division[division]
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
@@ -253,4 +284,19 @@ for division, grid in grids_by_division.items():
         print('')
     print('')
 
-
+for division, (grid, match_week) in grids_by_division.items():
+    print(f"= {division} =========== ")
+    teams = teams_by_division[division]
+    print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
+    print('\t'.join(f'({idx+1})' for idx in range(0, len(teams))))
+    for home_idx, home_team in enumerate(teams):
+        print(f"({home_idx+1}){home_team:>31} :", end='')
+        for away_team in teams:
+            week = model[match_week[home_team, away_team]].as_long()
+            if week != -1:
+                match = match_date(home_team, week).strftime('%d%b')
+                print(f'\t{match}', end='')
+            else:
+                print('\t -', end='')
+        print('')
+    print('')

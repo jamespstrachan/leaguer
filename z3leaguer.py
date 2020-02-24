@@ -80,13 +80,16 @@ team_progress = [{'team': team,
                   for team, slot_idx in team_slots.items()]
 
 teams_by_division = {}
+division_for_team = {}
 for fixture in fixtures:
-    draw = fixture['Draw']
+    division = fixture['Draw']
     team = fixture['Team 1']
-    if draw not in teams_by_division:
-        teams_by_division[draw] = []
-    if team not in teams_by_division[draw]:
-        teams_by_division[draw].append(team)
+    if division not in teams_by_division:
+        teams_by_division[division] = []
+    if team not in teams_by_division[division]:
+        teams_by_division[division].append(team)
+    if team not in division_for_team:
+        division_for_team[team] = division
 
 # limited_teams_by_division = {
     # 'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
@@ -137,20 +140,45 @@ def condition_play_once_per_week(grid, teams):
                 play_once.append(Implies(this_match, Not(any_other_match_this_week)))
     return And(*play_once)
 
+def condition_shared_slot_not_double_booked(grids_by_division):
+    not_double_booked = []
+    for slot in slots:
+        if not slot['Team 2']:
+            continue
+        team1 = slot['Team 1']
+        team2 = slot['Team 2']
+        team1_division    = division_for_team[team1]
+        team1_grid        = grids_by_division[team1_division]
+        team1_oppositions = teams_by_division[team1_division]
+        team2_division    = division_for_team[team2]
+        team2_grid        = grids_by_division[team2_division]
+        team2_oppositions = teams_by_division[team2_division]
+        for week in weeks:
+            team1_at_home = Or(*(team1_grid[team1, opp, week] for opp in team1_oppositions))
+            team2_at_home = Or(*(team2_grid[team2, opp, week] for opp in team2_oppositions))
+            not_double_booked.append(Not(And(team1_at_home, team2_at_home)))
+    return And(*not_double_booked)
+
 def conditions_for_division(grid, teams):
     return And(
                condition_match_happens_once(grid, teams),
                condition_play_once_per_week(grid, teams),
-               # condition_not_playing_home_and_away(grid, teams),
                # condition_play_equal_home_away(grid, teams),
                True
                )
+
+def conditions_between_divisions(grids_by_division):
+    return And(condition_shared_slot_not_double_booked(grids_by_division))
 
 solver = Solver()
 for division, grid in grids_by_division.items():
     solver.add(conditions_for_division(grid, teams_by_division[division]))
     print(solver.check())
     model = solver.model()
+
+solver.add(conditions_between_divisions(grids_by_division))
+print(solver.check())
+model = solver.model()
 
 for division, grid in grids_by_division.items():
     print(f"= {division} =========== ")
@@ -159,7 +187,7 @@ for division, grid in grids_by_division.items():
     print('\t'.join(f'({idx+1})' for idx in range(0, len(teams))))
     for home_idx, home_team in enumerate(teams):
         matches = {i: week for i, away_team in enumerate(teams) for week in weeks if model[grid[home_team, away_team, week]]}
-        print(f"({home_idx+1}) {home_team:>30} :", end='')
+        print(f"({home_idx+1}){home_team:>31} :", end='')
         for idx in range(0, len(teams)):
             if idx in matches:
                 print(f'\twk{matches[idx]}', end='')

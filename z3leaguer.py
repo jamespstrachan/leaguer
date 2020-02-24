@@ -100,13 +100,23 @@ grids_by_division = {}
 for division, teams in teams_by_division.items():
     grid = {}
     match_week = {}
+    away_team_grid = {}
+    home_team_grid = {}
     for home_team in teams:
         for away_team in teams:
             match_week[home_team, away_team] = Int(f'{home_team}_vs_{away_team}_in_week')
             for week in weeks:
                 grid[home_team, away_team, week] = Bool(f'{home_team}_vs_{away_team}_week_{week}')
-    grids_by_division[division] = (grid, match_week)
 
+    for home_team in teams:
+        for week in weeks:
+            away_team_grid[home_team, week] = Int(f'{home_team}_home_in_week_{week}_to')
+
+    for away_team in teams:
+        for week in weeks:
+            home_team_grid[away_team, week] = Int(f'{away_team}_away_in_week_{week}_to')
+
+    grids_by_division[division] = (grid, match_week, away_team_grid, home_team_grid)
 
 
 def condition_grid_match_week(grid, match_week, teams):
@@ -133,6 +143,30 @@ def condition_match_week_valid(match_week, teams):
                      match_week[team1, team2] <= max(weeks))
                  for team1 in teams
                  for team2 in teams))
+
+def condition_grid_away_team_grid(grid, away_team_grid, teams):
+    return And(*(grid[home_team, away_team, week] == (away_team_grid[home_team, week] == away_team_idx)
+                 for home_team in teams
+                 for away_team_idx, away_team in enumerate(teams)
+                 for week in weeks))
+
+def condition_away_team_grid_valid(away_team_grid, teams):
+    return And(*(And(away_team_grid[home_team, week] >= -1,
+                     away_team_grid[home_team, week] < len(teams))
+                 for home_team in teams
+                 for week in weeks))
+
+def condition_grid_home_team_grid(grid, home_team_grid, teams):
+    return And(*(grid[home_team, away_team, week] == (home_team_grid[away_team, week] == home_team_idx)
+                 for home_team_idx, home_team in enumerate(teams)
+                 for away_team in teams
+                 for week in weeks))
+
+def condition_home_team_grid_valid(home_team_grid, teams):
+    return And(*(And(home_team_grid[away_team, week] >= -1,
+                     home_team_grid[away_team, week] < len(teams))
+                 for away_team in teams
+                 for week in weeks))
 
 def condition_match_happens_once(grid, teams):
     pairing_happens = []
@@ -232,16 +266,20 @@ def condition_shared_slot_not_double_booked(grids_by_division):
             not_double_booked.append(Not(And(team1_at_home, team2_at_home)))
     return And(*not_double_booked)
 
-def conditions_for_division(grid, match_week, teams):
+def conditions_for_division(grid, match_week, away_team_grid, home_team_grid, teams):
     return And(
 #               condition_match_happens_once(grid, teams),
-               condition_play_once_per_week(grid, teams),
+#               condition_play_once_per_week(grid, teams),
                condition_enough_rest(grid, teams),
                condition_same_club_teams_play_first(grid, teams),
                condition_grid_match_week(grid, match_week, teams),
                condition_not_both_home_away(match_week, teams),
                condition_one_of_home_away(match_week, teams),
                condition_match_week_valid(match_week, teams),
+               condition_grid_away_team_grid(grid, away_team_grid, teams),
+               condition_away_team_grid_valid(away_team_grid, teams),
+               condition_grid_home_team_grid(grid, home_team_grid, teams),
+               condition_home_team_grid_valid(home_team_grid, teams),
                True
                )
 
@@ -251,8 +289,10 @@ def conditions_between_divisions(grids_by_division):
                True)
 
 solver = Solver()
-for division, (grid, match_week) in grids_by_division.items():
-    solver.add(conditions_for_division(grid, match_week, teams_by_division[division]))
+for division, (grid, match_week, away_team_grid, home_team_grid) in grids_by_division.items():
+    solver.add(conditions_for_division(grid, match_week,
+                                       away_team_grid, home_team_grid,
+                                       teams_by_division[division]))
     print('{}: {}'.format(division, solver.check()))
     model = solver.model()
 
@@ -264,7 +304,7 @@ model = solver.model()
 def match_date(home_team, week):
     return slots[team_slots[home_team]]['Date'] + timedelta(days=7*week)
 
-for division, (grid, match_week) in grids_by_division.items():
+for division, (grid, match_week, away_team_grid, home_team_grid) in grids_by_division.items():
     print(f"= {division} =========== ")
     teams = teams_by_division[division]
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
@@ -284,7 +324,7 @@ for division, (grid, match_week) in grids_by_division.items():
         print('')
     print('')
 
-for division, (grid, match_week) in grids_by_division.items():
+for division, (grid, match_week, away_team_grid, home_team_grid) in grids_by_division.items():
     print(f"= {division} =========== ")
     teams = teams_by_division[division]
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')

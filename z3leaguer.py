@@ -19,6 +19,10 @@ dir_path          = os.path.dirname(os.path.realpath(__file__))
 league_start_date = datetime.strptime('24/04/2020', date_format)
 league_end_date   = datetime.strptime('28/06/2020', date_format)
 
+weeks_in_league = (league_end_date - league_start_date).days // 7
+weeks = range(0, weeks_in_league)
+
+
 if file_format == 'xlsx':
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(fixtures_filename, "rb") as xlsxfile:
@@ -91,8 +95,6 @@ for fixture in fixtures:
     # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
 # }
 # teams_by_division = limited_teams_by_division
-
-weeks = range(0, 9)
 
 grids_by_division = {}
 for division, teams in teams_by_division.items():

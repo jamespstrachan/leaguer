@@ -168,37 +168,6 @@ def condition_home_team_grid_valid(home_team_grid, teams):
                  for away_team in teams
                  for week in weeks))
 
-def condition_match_happens_once(grid, teams):
-    pairing_happens = []
-    plays_self = []
-    plays_both = []
-    for home_team in teams:
-        for away_team in teams:
-            if home_team == away_team:
-                plays_self.append(Or(*(grid[home_team, away_team, week] for week in weeks)))
-            else:
-                plays_home = (grid[home_team, away_team, week] for week in weeks)
-                plays_away = (grid[away_team, home_team, week] for week in weeks)
-                pairing_happens.append(Or(*plays_home, *plays_away))
-                plays_both.append(And(Or(*plays_home), Or(*plays_away)))
-    return And(*pairing_happens, Not(Or(*plays_self)), Not(Or(*plays_both)))
-
-
-def condition_play_once_per_week(grid, teams):
-    play_once = []
-    for week in weeks:
-        for home_team in teams:
-            for away_team in teams:
-                home_other_home = Or(*(grid[home_team, opp, week] for opp in teams if opp != away_team))
-                home_any_away   = Or(*(grid[opp, home_team, week] for opp in teams))
-                away_any_home   = Or(*(grid[away_team, opp, week] for opp in teams))
-                away_other_away = Or(*(grid[opp, away_team, week] for opp in teams if opp != home_team))
-                this_match                = grid[home_team, away_team, week]
-                any_other_match_this_week = Or(home_other_home, home_any_away, away_any_home, away_other_away)
-                play_once.append(Implies(this_match, Not(any_other_match_this_week)))
-    return And(*play_once)
-
-
 def condition_enough_rest(grid, teams):
     enough_rest = []
     rest_period = timedelta(days=rest_days)
@@ -268,8 +237,6 @@ def condition_shared_slot_not_double_booked(grids_by_division):
 
 def conditions_for_division(grid, match_week, away_team_grid, home_team_grid, teams):
     return And(
-#               condition_match_happens_once(grid, teams),
-#               condition_play_once_per_week(grid, teams),
                condition_enough_rest(grid, teams),
                condition_same_club_teams_play_first(grid, teams),
                condition_grid_match_week(grid, match_week, teams),

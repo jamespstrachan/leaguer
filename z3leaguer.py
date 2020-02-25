@@ -96,8 +96,8 @@ for fixture in fixtures:
 partial_test = True
 if partial_test:
     limited_teams_by_division = {
-        'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
-        'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
+        'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
+        # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
     }
     teams_by_division = limited_teams_by_division
 
@@ -105,25 +105,94 @@ if partial_test:
 grids_by_division = {}
 for division, teams in teams_by_division.items():
     grid = {}
+    match_week = {}
+    away_team_grid = {}
+    home_team_grid = {}
     for home_team in teams:
         for away_team in teams:
+            match_week[home_team, away_team] = Int(f'{home_team}_vs_{away_team}_in_week')
             for week in weeks:
                 grid[home_team, away_team, week] = Bool(f'{home_team}_vs_{away_team}_week_{week}')
-    grids_by_division[division] = grid
+
+        for week in weeks:
+            away_team_grid[home_team, week] = Int(f'{home_team}_home_in_week_{week}_to')
+
+    for away_team in teams:
+        for week in weeks:
+            home_team_grid[away_team, week] = Int(f'{away_team}_away_in_week_{week}_to')
+
+    kpis = {
+        'home_away_imbalance':         Int(f'{division} home_away_imbalance'),
+        'away_twice_at_same_club':     Int(f'{division} away_twice_at_same_club'),
+        'repeat_of_old_fixture':       Int(f'{division} repeat_of_old_fixture'),
+    }
+
+    grids_by_division[division] = (grid, match_week, away_team_grid, home_team_grid, kpis)
 
 
+def condition_grid_match_week(grid, match_week, teams):
+    return And(*(grid[home_team, away_team, week] == (match_week[home_team, away_team] == week)
+                 for home_team in teams
+                 for away_team in teams
+                 for week in weeks))
+
+def condition_not_both_home_away(match_week, teams):
+    return And(*(Or(match_week[team1, team2] == -1,
+                    match_week[team2, team1] == -1)
+                 for team1 in teams
+                 for team2 in teams))
+
+def condition_one_of_home_away(match_week, teams):
+    return And(*((match_week[team1, team2] == -1)
+                 != (match_week[team2, team1] == -1)
+                 for team1 in teams
+                 for team2 in teams
+                 if team1 != team2))
+
+def condition_match_week_valid(match_week, teams):
+    return And(*(And(match_week[team1, team2] >= -1,
+                     match_week[team1, team2] <= max(weeks))
+                 for team1 in teams
+                 for team2 in teams))
+
+def condition_grid_away_team_grid(grid, away_team_grid, teams):
+    return And(*(grid[home_team, away_team, week] == (away_team_grid[home_team, week] == away_team_idx)
+                 for home_team in teams
+                 for away_team_idx, away_team in enumerate(teams)
+                 for week in weeks))
+
+def condition_away_team_grid_valid(away_team_grid, teams):
+    return And(*(And(away_team_grid[home_team, week] >= -1,
+                     away_team_grid[home_team, week] < len(teams))
+                 for home_team in teams
+                 for week in weeks))
+
+def condition_grid_home_team_grid(grid, home_team_grid, teams):
+    return And(*(grid[home_team, away_team, week] == (home_team_grid[away_team, week] == home_team_idx)
+                 for home_team_idx, home_team in enumerate(teams)
+                 for away_team in teams
+                 for week in weeks))
+
+def condition_home_team_grid_valid(home_team_grid, teams):
+    return And(*(And(home_team_grid[away_team, week] >= -1,
+                     home_team_grid[away_team, week] < len(teams))
+                 for away_team in teams
+                 for week in weeks))
+
+""" # Old constraints which should be superseded by constraints on new projections, such as
+    # condition_grid_match_week()
 
 def condition_match_happens_once(grid, teams):
     pairing_happens = []
     plays_self = []
     plays_both = []
-    for home_team in teams:
-        for away_team in teams:
-            if home_team == away_team:
-                plays_self.append(Or(*(grid[home_team, away_team, week] for week in weeks)))
+    for team1 in teams:
+        for team2 in teams:
+            if team1 == team2:
+                plays_self.append(Or(*(grid[team1, team2, week] for week in weeks)))
             else:
-                plays_home = (grid[home_team, away_team, week] for week in weeks)
-                plays_away = (grid[away_team, home_team, week] for week in weeks)
+                plays_home = (grid[team1, team2, week] for week in weeks)
+                plays_away = (grid[team2, team1, week] for week in weeks)
                 pairing_happens.append(Or(*plays_home, *plays_away))
                 plays_both.append(And(Or(*plays_home), Or(*plays_away)))
     return And(*pairing_happens, Not(Or(*plays_self)), Not(Or(*plays_both)))
@@ -142,7 +211,7 @@ def condition_play_once_per_week(grid, teams):
                 any_other_match_this_week = Or(home_other_home, home_any_away, away_any_home, away_other_away)
                 play_once.append(Implies(this_match, Not(any_other_match_this_week)))
     return And(*play_once)
-
+"""
 
 def condition_enough_rest(grid, teams):
     enough_rest = []
@@ -200,10 +269,10 @@ def condition_shared_slot_not_double_booked(grids_by_division):
         team1 = slot['Team 1']
         team2 = slot['Team 2']
         team1_division    = division_for_team[team1]
-        team1_grid        = grids_by_division[team1_division]
+        team1_grid        = grids_by_division[team1_division][0]
         team1_oppositions = teams_by_division[team1_division]
         team2_division    = division_for_team[team2]
-        team2_grid        = grids_by_division[team2_division]
+        team2_grid        = grids_by_division[team2_division][0]
         team2_oppositions = teams_by_division[team2_division]
         for week in weeks:
             team1_at_home = Or(*(team1_grid[team1, opp, week] for opp in team1_oppositions))
@@ -232,7 +301,8 @@ def count_home_away_games_diff(grid, teams):
                            if is_same_club(team, opp))
         difference = abs(home_games + away_at_home - away_games)
         # out-by-one is fine because 4h/3a is not improvable
-        total_difference += If(difference == 1, 0, difference)
+        # total_difference += If(difference == 1, 0, difference)
+        total_difference += difference / 2
     return total_difference
 
 
@@ -259,12 +329,22 @@ def count_repeat_of_old_fixture(grid, teams):
     return total_repeat_of_old_fixture
 
 
-def conditions_for_division(grid, teams):
+def conditions_for_division(grid, match_week, away_team_grid, home_team_grid, teams):
     return And(
-               condition_match_happens_once(grid, teams),
-               condition_play_once_per_week(grid, teams),
-               condition_enough_rest(grid, teams),
-               condition_same_club_teams_play_first(grid, teams),
+               ## These two superseded by the following set of 8
+               # condition_match_happens_once(grid, teams),
+               # condition_play_once_per_week(grid, teams),
+               condition_grid_match_week(grid, match_week, teams),
+               condition_not_both_home_away(match_week, teams),
+               condition_one_of_home_away(match_week, teams),
+               condition_match_week_valid(match_week, teams),
+               condition_grid_away_team_grid(grid, away_team_grid, teams),
+               condition_away_team_grid_valid(away_team_grid, teams),
+               condition_grid_home_team_grid(grid, home_team_grid, teams),
+               condition_home_team_grid_valid(home_team_grid, teams),
+
+               # condition_enough_rest(grid, teams),
+               # condition_same_club_teams_play_first(grid, teams),
                True)
 
 
@@ -274,38 +354,31 @@ def conditions_between_divisions(grids_by_division):
                True)
 
 
-def kpis_for_division(grid, teams, problems):
+def kpis_for_division(grid, teams, kpis):
     return And(
-               problems['home_away_imbalance'] == count_home_away_games_diff(grid, teams),
-               problems['away_twice_at_same_club'] == count_away_twice_at_same_club(grid, teams),
-               problems['repeat_of_old_fixture'] == count_repeat_of_old_fixture(grid, teams),
-               #problems['home_away_imbalance'] < len(teams)*2,
-               #problems['away_twice_at_same_club'] < 1,
+               kpis['home_away_imbalance'] == count_home_away_games_diff(grid, teams),
+               kpis['away_twice_at_same_club'] == count_away_twice_at_same_club(grid, teams),
+               kpis['repeat_of_old_fixture'] == count_repeat_of_old_fixture(grid, teams),
+               kpis['home_away_imbalance'] < 1,
+               # kpis['away_twice_at_same_club'] < 3,
+               # kpis['repeat_of_old_fixture'] < 10,
                True
                )
 
 
-problems_by_division = {}
-for division,_ in grids_by_division.items():
-    problems_by_division[division] = {
-        'home_away_imbalance':         Int(f'{division} home_away_imbalance'),
-        'away_twice_at_same_club':     Int(f'{division} away_twice_at_same_club'),
-        'repeat_of_old_fixture':       Int(f'{division} repeat_of_old_fixture'),
-    }
-
 solver = Solver()
-for division, grid in grids_by_division.items():
+for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
     teams = teams_by_division[division]
-    solver.add(conditions_for_division(grid, teams))
-    solver.add(kpis_for_division(grid, teams, problems_by_division[division]))
+    solver.add(conditions_for_division(grid, match_week,
+                                       away_team_grid, home_team_grid,
+                                       teams))
+    solver.add(kpis_for_division(grid, teams, kpis))
     print('{}: {}'.format(division, solver.check()))
-    model = solver.model()
 
 if not partial_test:
     solver.add(conditions_between_divisions(grids_by_division))
+    print('Constraining shared slots: '.format(solver.check()))
 
-
-print(solver.check())
 model = solver.model()
 
 
@@ -314,7 +387,7 @@ def match_date(home_team, week):
 
 
 scheduled_matches = {}
-for division, grid in grids_by_division.items():
+for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
     print(f"= {division} =========== ")
     teams = teams_by_division[division]
     print(" ↓ home team {:>26}".format('   \    away team → \t'), end='')
@@ -333,11 +406,26 @@ for division, grid in grids_by_division.items():
             else:
                 print('\t -', end='')
         print('')
-    problems = problems_by_division[division]
-    print('Home/Away imbalance     = {}'.format(model[problems['home_away_imbalance']]))
-    print('Away twice at same club = {}'.format(model[problems['away_twice_at_same_club']]))
-    print('Repeat of old fixture   = {}'.format(model[problems['repeat_of_old_fixture']]))
+
+    print('Home/Away imbalance     = {}'.format(model[kpis['home_away_imbalance']]))
+    print('Away twice at same club = {}'.format(model[kpis['away_twice_at_same_club']]))
+    print('Repeat of old fixture   = {}'.format(model[kpis['repeat_of_old_fixture']]))
+
+    # for team1 in teams:
+        # for team2 in teams:
+            # for week in weeks:
+                # if model[grid[team1, team2, week]]:
+                    # print(f'{team1} plays {team2} on {match_date(team1, week)}')
     print('')
+
+    ##  Alternative output of matches for each team
+    # for team1 in teams:
+        # print(f'\n {team1}:', end='')
+        # for team2 in teams:
+            # for week in weeks:
+                # if model[grid[team1, team2, week]]:
+                    # print(f"{team2} on wk{week}, ", end='')
+    # print('')
 
 
 for fixture in fixtures:
@@ -365,9 +453,9 @@ for fixture in fixtures:
 # if False and file_format == 'xlsx': ############### TESTING - REMOVE
 if file_format == 'xlsx':
     with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM') as writer:
-        for i, fixture in enumerate(fixtures):
-            fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
-            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
+        #for i, fixture in enumerate(fixtures):
+            #fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
+            #fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
         dataframe.to_excel(writer, index=False)
 else:

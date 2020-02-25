@@ -4,7 +4,7 @@ import pandas
 from datetime import datetime, timedelta
 import os
 
-from z3 import Bool, Real, Solver, Optimize, And, Or, Not, Implies, If
+from z3 import Bool, Int, Solver, And, Or, Not, Implies, If
 
 file_format       = 'xlsx'
 # file_format      = 'csv'
@@ -90,6 +90,9 @@ for fixture in fixtures:
     if team not in division_for_team:
         division_for_team[team] = division
 
+
+
+# partial_test = False
 partial_test = True
 if partial_test:
     limited_teams_by_division = {
@@ -245,6 +248,16 @@ def count_away_twice_at_same_club(grid, teams):
     return total_same_club_aways
 
 
+played_in_old_fixtures = [(x['Team 1'], x['Team 2']) for x in old_fixtures]
+def count_repeat_of_old_fixture(grid, teams):
+    total_repeat_of_old_fixture = 0
+    for team1 in teams:
+        for team2 in teams:
+            if (team1, team2) in played_in_old_fixtures:
+                repeat_of_old_fixture = Or(*(grid[team1, team2, week] for week in weeks))
+                total_repeat_of_old_fixture += If(repeat_of_old_fixture, 1, 0)
+    return total_repeat_of_old_fixture
+
 
 def conditions_for_division(grid, teams):
     return And(
@@ -265,8 +278,9 @@ def kpis_for_division(grid, teams, problems):
     return And(
                problems['home_away_imbalance'] == count_home_away_games_diff(grid, teams),
                problems['away_twice_at_same_club'] == count_away_twice_at_same_club(grid, teams),
-               # problems['home_away_imbalance'] < len(teams)*2,
-               # problems['away_twice_at_same_club'] < 3,
+               problems['repeat_of_old_fixture'] == count_repeat_of_old_fixture(grid, teams),
+               #problems['home_away_imbalance'] < len(teams)*2,
+               #problems['away_twice_at_same_club'] < 1,
                True
                )
 
@@ -274,8 +288,9 @@ def kpis_for_division(grid, teams, problems):
 problems_by_division = {}
 for division,_ in grids_by_division.items():
     problems_by_division[division] = {
-        'home_away_imbalance':     Real(f'{division} home_away_imbalance'),
-        'away_twice_at_same_club': Real(f'{division} away_twice_at_same_club')
+        'home_away_imbalance':         Int(f'{division} home_away_imbalance'),
+        'away_twice_at_same_club':     Int(f'{division} away_twice_at_same_club'),
+        'repeat_of_old_fixture':       Int(f'{division} repeat_of_old_fixture'),
     }
 
 solver = Solver()
@@ -319,8 +334,9 @@ for division, grid in grids_by_division.items():
                 print('\t -', end='')
         print('')
     problems = problems_by_division[division]
-    print('Home/Away imbalance = {}'.format(model[problems['home_away_imbalance']]))
+    print('Home/Away imbalance     = {}'.format(model[problems['home_away_imbalance']]))
     print('Away twice at same club = {}'.format(model[problems['away_twice_at_same_club']]))
+    print('Repeat of old fixture   = {}'.format(model[problems['repeat_of_old_fixture']]))
     print('')
 
 

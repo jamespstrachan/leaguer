@@ -4,7 +4,7 @@ import pandas
 from datetime import datetime, timedelta
 import os
 
-from z3 import Bool, Solver, And, Or, Not, Implies
+from z3 import Bool, Real, Solver, Optimize, And, Or, Not, Implies, If
 
 file_format       = 'xlsx'
 # file_format      = 'csv'
@@ -90,11 +90,14 @@ for fixture in fixtures:
     if team not in division_for_team:
         division_for_team[team] = division
 
-# limited_teams_by_division = {
-    # 'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
-    # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
-# }
-# teams_by_division = limited_teams_by_division
+partial_test = True
+if partial_test:
+    limited_teams_by_division = {
+        'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
+        'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
+    }
+    teams_by_division = limited_teams_by_division
+
 
 grids_by_division = {}
 for division, teams in teams_by_division.items():
@@ -205,27 +208,88 @@ def condition_shared_slot_not_double_booked(grids_by_division):
             not_double_booked.append(Not(And(team1_at_home, team2_at_home)))
     return And(*not_double_booked)
 
+
+
+def abs(x):
+    return If(x >= 0,x,-x)
+
+def count_home_away_games_diff(grid, teams):
+    total_difference = 0
+    for team in teams:
+        home_games = sum(If(grid[team, opp, week], 1, 0)
+                         for opp in teams
+                         for week in weeks)
+        away_games = sum(If(grid[opp, team, week], 1, 0)
+                         for opp in teams
+                         for week in weeks
+                         if not is_same_club(team, opp))
+        away_at_home = sum(If(grid[opp, team, week], 1, 0)
+                           for opp in teams
+                           for week in weeks
+                           if is_same_club(team, opp))
+        difference = abs(home_games + away_at_home - away_games)
+        # out-by-one is fine because 4h/3a is not improvable
+        total_difference += If(difference == 1, 0, difference)
+    return total_difference
+
+
+def count_away_twice_at_same_club(grid, teams):
+    total_same_club_aways = 0
+    for i, team1 in enumerate(teams):
+        for team2 in teams[i+1:]:
+            if is_same_club(team1, team2):
+                for team in teams:
+                    plays_team1_away = Or(*(grid[team1, team, week] for week in weeks))
+                    plays_team2_away = Or(*(grid[team2, team, week] for week in weeks))
+                    total_same_club_aways += If(And(plays_team1_away, plays_team2_away), 1, 0)
+    return total_same_club_aways
+
+
+
 def conditions_for_division(grid, teams):
     return And(
                condition_match_happens_once(grid, teams),
                condition_play_once_per_week(grid, teams),
                condition_enough_rest(grid, teams),
                condition_same_club_teams_play_first(grid, teams),
-               True
-               )
+               True)
+
 
 def conditions_between_divisions(grids_by_division):
     return And(
                condition_shared_slot_not_double_booked(grids_by_division),
                True)
 
+
+def kpis_for_division(grid, teams, problems):
+    return And(
+               problems['home_away_imbalance'] == count_home_away_games_diff(grid, teams),
+               problems['away_twice_at_same_club'] == count_away_twice_at_same_club(grid, teams),
+               # problems['home_away_imbalance'] < len(teams)*2,
+               # problems['away_twice_at_same_club'] < 3,
+               True
+               )
+
+
+problems_by_division = {}
+for division,_ in grids_by_division.items():
+    problems_by_division[division] = {
+        'home_away_imbalance':     Real(f'{division} home_away_imbalance'),
+        'away_twice_at_same_club': Real(f'{division} away_twice_at_same_club')
+    }
+
 solver = Solver()
 for division, grid in grids_by_division.items():
-    solver.add(conditions_for_division(grid, teams_by_division[division]))
+    teams = teams_by_division[division]
+    solver.add(conditions_for_division(grid, teams))
+    solver.add(kpis_for_division(grid, teams, problems_by_division[division]))
     print('{}: {}'.format(division, solver.check()))
     model = solver.model()
 
-solver.add(conditions_between_divisions(grids_by_division))
+if not partial_test:
+    solver.add(conditions_between_divisions(grids_by_division))
+
+
 print(solver.check())
 model = solver.model()
 
@@ -254,6 +318,9 @@ for division, grid in grids_by_division.items():
             else:
                 print('\t -', end='')
         print('')
+    problems = problems_by_division[division]
+    print('Home/Away imbalance = {}'.format(model[problems['home_away_imbalance']]))
+    print('Away twice at same club = {}'.format(model[problems['away_twice_at_same_club']]))
     print('')
 
 

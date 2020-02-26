@@ -98,7 +98,7 @@ if partial_test:
     limited_teams_by_division = {
         'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
         # 'LADIES DIVISION 4': teams_by_division['LADIES DIVISION 4'],
-        # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
+        'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
         # 'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
     }
     teams_by_division = limited_teams_by_division
@@ -358,16 +358,6 @@ def kpis_for_division(grid, match_week, away_team_grid, home_team_grid, kpis):
                )
 
 
-def kpi_limits_for_division(kpis, limits):
-    return And(
-               kpis['home_away_imbalance']     < limits['home_away_imbalance'],
-               kpis['away_twice_at_same_club'] < limits['away_twice_at_same_club'],
-               kpis['repeat_of_old_fixture']   < limits['repeat_of_old_fixture'],
-               True
-               )
-
-
-
 solver = Solver()
 for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
     teams = teams_by_division[division]
@@ -379,41 +369,36 @@ for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_
 
 if not partial_test:
     solver.add(conditions_between_divisions(grids_by_division))
-    print('Constraining shared slots: '.format(solver.check()))
+    print('Constraining shared slots: {}'.format(solver.check()))
 
 model = solver.model()
 
+print('')
 kpi_priority = ['home_away_imbalance', 'away_twice_at_same_club', 'repeat_of_old_fixture']
-for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
-    limits = {k:int(str(model[v]))+1 for k,v in kpis.items()}
-    old_limits = limits
-    kpi_focus = 0
+for kpi_name in kpi_priority:
+    print(f'Improving KPI {kpi_name}')
+    for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
+        kpi_limit = int(str(model[kpis[kpi_name]]))+1
+        print(f'  {division} from {kpi_limit} → ', end='', flush=True)
+        for _ in range(0, 50):
+            solver.push()
+            solver.add(kpis[kpi_name] < kpi_limit)
 
-    for _ in range(0, 50):
-        print(f'Improving {division} from {limits} ...')
-        solver.push()
-        solver.add(kpi_limits_for_division(kpis, limits))
-
-        kpi_name = kpi_priority[kpi_focus]
-        unable_to_sat = False
-        if solver.check() == sat:
-            model = solver.model()
-            new_value = model[kpis[kpi_name]]
-        else:
-            solver.pop()
-            solver.check()
-            unable_to_sat = True
-            limits = old_limits
-
-        if unable_to_sat:
-            kpi_focus +=1
-            if kpi_focus >= len(kpi_priority):
+            if kpi_limit > 0 and solver.check() == sat:
+                model = solver.model()
+                value = int(str(model[kpis[kpi_name]]))
+                if value == 0 and kpi_limit != 1:
+                    kpi_limit = 1
+                else:
+                    kpi_limit = value
+                print(f'{kpi_limit} → ', end='', flush=True)
+            else:
+                print('done')
+                solver.pop()
                 break
-        else:
-            old_limits = limits
-            limits.update({kpi_name: new_value})
-    print('Can\t improve further')
+print('')
 
+solver.check()
 model = solver.model()
 
 

@@ -4,7 +4,7 @@ import pandas
 from datetime import datetime, timedelta
 import os
 
-from z3 import Bool, Int, Solver, And, Or, Not, Implies, If
+from z3 import Bool, Int, Solver, And, Or, Not, Implies, If, sat
 
 file_format       = 'xlsx'
 # file_format      = 'csv'
@@ -92,12 +92,14 @@ for fixture in fixtures:
 
 
 
-# partial_test = False
-partial_test = True
+partial_test = False
+# partial_test = True
 if partial_test:
     limited_teams_by_division = {
-        'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
+        'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
+        # 'LADIES DIVISION 4': teams_by_division['LADIES DIVISION 4'],
         # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
+        # 'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
     }
     teams_by_division = limited_teams_by_division
 
@@ -285,24 +287,17 @@ def condition_shared_slot_not_double_booked(grids_by_division):
 def abs(x):
     return If(x >= 0,x,-x)
 
-def count_home_away_games_diff(grid, teams):
+def count_home_away_games_diff(home_team_grid, away_team_grid, teams):
     total_difference = 0
     for team in teams:
-        home_games = sum(If(grid[team, opp, week], 1, 0)
-                         for opp in teams
+        home_games = sum(If(away_team_grid[team, week] >= 0, 1, 0)
                          for week in weeks)
-        away_games = sum(If(grid[opp, team, week], 1, 0)
-                         for opp in teams
-                         for week in weeks
-                         if not is_same_club(team, opp))
-        away_at_home = sum(If(grid[opp, team, week], 1, 0)
-                           for opp in teams
-                           for week in weeks
-                           if is_same_club(team, opp))
-        difference = abs(home_games + away_at_home - away_games)
+        away_games = sum(If(home_team_grid[team, week] >= 0, 1, 0)
+                         for week in weeks)
+
+        difference = abs(home_games - away_games)
         # out-by-one is fine because 4h/3a is not improvable
-        # total_difference += If(difference == 1, 0, difference)
-        total_difference += difference / 2
+        total_difference += If(difference == 1, 0, difference)
     return total_difference
 
 
@@ -343,8 +338,8 @@ def conditions_for_division(grid, match_week, away_team_grid, home_team_grid, te
                condition_grid_home_team_grid(grid, home_team_grid, teams),
                condition_home_team_grid_valid(home_team_grid, teams),
 
-               # condition_enough_rest(grid, teams),
-               # condition_same_club_teams_play_first(grid, teams),
+               condition_enough_rest(grid, teams),
+               condition_same_club_teams_play_first(grid, teams),
                True)
 
 
@@ -354,16 +349,23 @@ def conditions_between_divisions(grids_by_division):
                True)
 
 
-def kpis_for_division(grid, teams, kpis):
+def kpis_for_division(grid, match_week, away_team_grid, home_team_grid, kpis):
     return And(
-               kpis['home_away_imbalance'] == count_home_away_games_diff(grid, teams),
+               kpis['home_away_imbalance']     == count_home_away_games_diff(home_team_grid, away_team_grid, teams),
                kpis['away_twice_at_same_club'] == count_away_twice_at_same_club(grid, teams),
-               kpis['repeat_of_old_fixture'] == count_repeat_of_old_fixture(grid, teams),
-               kpis['home_away_imbalance'] < 1,
-               # kpis['away_twice_at_same_club'] < 3,
-               # kpis['repeat_of_old_fixture'] < 10,
+               kpis['repeat_of_old_fixture']   == count_repeat_of_old_fixture(grid, teams),
                True
                )
+
+
+def kpi_limits_for_division(kpis, limits):
+    return And(
+               kpis['home_away_imbalance']     < limits['home_away_imbalance'],
+               kpis['away_twice_at_same_club'] < limits['away_twice_at_same_club'],
+               kpis['repeat_of_old_fixture']   < limits['repeat_of_old_fixture'],
+               True
+               )
+
 
 
 solver = Solver()
@@ -372,12 +374,45 @@ for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_
     solver.add(conditions_for_division(grid, match_week,
                                        away_team_grid, home_team_grid,
                                        teams))
-    solver.add(kpis_for_division(grid, teams, kpis))
-    print('{}: {}'.format(division, solver.check()))
+    solver.add(kpis_for_division(grid, match_week, away_team_grid, home_team_grid, kpis))
+    print('provisional {}: {}'.format(division, solver.check()))
 
 if not partial_test:
     solver.add(conditions_between_divisions(grids_by_division))
     print('Constraining shared slots: '.format(solver.check()))
+
+model = solver.model()
+
+kpi_priority = ['home_away_imbalance', 'away_twice_at_same_club', 'repeat_of_old_fixture']
+for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
+    limits = {k:int(str(model[v]))+1 for k,v in kpis.items()}
+    old_limits = limits
+    kpi_focus = 0
+
+    for _ in range(0, 50):
+        print(f'Improving {division} from {limits} ...')
+        solver.push()
+        solver.add(kpi_limits_for_division(kpis, limits))
+
+        kpi_name = kpi_priority[kpi_focus]
+        unable_to_sat = False
+        if solver.check() == sat:
+            model = solver.model()
+            new_value = model[kpis[kpi_name]]
+        else:
+            solver.pop()
+            solver.check()
+            unable_to_sat = True
+            limits = old_limits
+
+        if unable_to_sat:
+            kpi_focus +=1
+            if kpi_focus >= len(kpi_priority):
+                break
+        else:
+            old_limits = limits
+            limits.update({kpi_name: new_value})
+    print('Can\t improve further')
 
 model = solver.model()
 

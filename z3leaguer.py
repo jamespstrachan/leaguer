@@ -450,6 +450,7 @@ for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_
     # print('')
 
 
+new_column_headers = []
 for fixture in fixtures:
     team1 = fixture['Team 1']
     team2 = fixture['Team 2']
@@ -470,6 +471,15 @@ for fixture in fixtures:
 
     fixture['Court']    = '1'
     fixture['Location'] = 'Main Location'
+
+    teams = teams_by_division[division_for_team[team1]]
+    has_team_columns = {f'has_team_{idx}': 1 if team_name in (team1, team2) else 0
+                        for idx, team_name in enumerate(teams, 1)}
+    new_column_headers += has_team_columns.keys()
+    fixture.update(has_team_columns)
+
+fixture_file_headers = list(fixture_file_headers) + sorted(list(set(new_column_headers)))
+
 
 
 # if False and file_format == 'xlsx': ############### TESTING - REMOVE

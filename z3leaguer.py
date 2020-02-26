@@ -58,6 +58,7 @@ else:
         slots = list(reader)
 
 
+
 fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
 
 
@@ -89,7 +90,6 @@ for fixture in fixtures:
         teams_by_division[division].append(team)
     if team not in division_for_team:
         division_for_team[team] = division
-
 
 
 partial_test = False
@@ -181,8 +181,9 @@ def condition_home_team_grid_valid(home_team_grid, teams):
                  for away_team in teams
                  for week in weeks))
 
-""" # Old constraints which should be superseded by constraints on new projections, such as
-    # condition_grid_match_week()
+
+# Old constraints which should be superseded by constraints on new projections, such as
+# condition_grid_match_week()
 
 def condition_match_happens_once(grid, teams):
     pairing_happens = []
@@ -213,7 +214,7 @@ def condition_play_once_per_week(grid, teams):
                 any_other_match_this_week = Or(home_other_home, home_any_away, away_any_home, away_other_away)
                 play_once.append(Implies(this_match, Not(any_other_match_this_week)))
     return And(*play_once)
-"""
+
 
 def condition_enough_rest(grid, teams):
     enough_rest = []
@@ -247,7 +248,7 @@ def condition_enough_rest(grid, teams):
 
 
 def is_same_club(team1, team2):
-    """ returns true if the club names are identical except for the trailing team number"""
+    """ returns true if the club names are identical except for the trailing team number """
     return team1[0:-2] == team2[0:-2]
 
 def condition_same_club_teams_play_first(grid, teams):
@@ -327,8 +328,9 @@ def count_repeat_of_old_fixture(grid, teams):
 def conditions_for_division(grid, match_week, away_team_grid, home_team_grid, teams):
     return And(
                ## These two superseded by the following set of 8
-               # condition_match_happens_once(grid, teams),
-               # condition_play_once_per_week(grid, teams),
+               condition_match_happens_once(grid, teams),
+               condition_play_once_per_week(grid, teams),
+               ##
                condition_grid_match_week(grid, match_week, teams),
                condition_not_both_home_away(match_week, teams),
                condition_one_of_home_away(match_week, teams),

@@ -465,9 +465,10 @@ for fixture in fixtures:
         fixture['Team 2']   = team1
         fixture['Date']     = scheduled_matches[team2, team1].strftime(date_format)
         fixture['Time']     = slots[team_slots[team2]]['Time']
+    elif partial_test:
+        continue
     else:
         raise Exception(f'Match between {team1} and {team2} not found in scheduled matches list')
-        pass
 
     fixture['Court']    = '1'
     fixture['Location'] = 'Main Location'

@@ -4,20 +4,26 @@ import pandas
 from datetime import datetime, timedelta
 import os
 
-from z3 import Bool, Int, Solver, And, Or, Not, Implies, If, sat
+from z3 import Bool, Int, Solver, And, Or, Not, Implies, If, sat, set_param
+
+set_param('parallel.enable', True)
+set_param('parallel.threads.max', 4)
 
 file_format       = 'xlsx'
 # file_format      = 'csv'
 rest_days         = 4
-output_filename   = 'results {}.{}'.format(datetime.now().strftime('%Y%b%d %H.%M.%S'), file_format)
-fixtures_filename = 'fixtures.{}'.format(file_format)
-old_fixtures_filename = 'old_fixtures.{}'.format(file_format)
-slots_filename    = 'slots.{}'.format(file_format)
+file_prefix       = ''
+output_filename   = '{}results {}.{}'.format(file_prefix, datetime.now().strftime('%Y%b%d %H.%M.%S'), file_format)
+fixtures_filename = '{}fixtures.{}'.format(file_prefix, file_format)
+old_fixtures_filename = '{}old_fixtures.{}'.format(file_prefix, file_format)
+slots_filename    = '{}slots.{}'.format(file_prefix, file_format)
 date_format       = '%d/%m/%Y'
 newline           = "\r\n"
 dir_path          = os.path.dirname(os.path.realpath(__file__))
-league_start_date = datetime.strptime('24/04/2020', date_format)
-league_end_date   = datetime.strptime('28/06/2020', date_format)
+# league_start_date = datetime.strptime('24/04/2020', date_format)
+# league_end_date   = datetime.strptime('28/06/2020', date_format)
+league_start_date = datetime.strptime('02/07/2020', date_format)
+league_end_date   = datetime.strptime('12/08/2020', date_format)
 
 weeks_in_league = (league_end_date - league_start_date).days // 7
 weeks = range(0, weeks_in_league)
@@ -96,10 +102,12 @@ partial_test = False
 # partial_test = True
 if partial_test:
     limited_teams_by_division = {
-        'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
+        # 'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
+        # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
         # 'LADIES DIVISION 4': teams_by_division['LADIES DIVISION 4'],
-        'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
         # 'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
+        'MIXED DIVISION 1': teams_by_division['MIXED DIVISION 1'],
+        'MIXED DIVISION 2': teams_by_division['MIXED DIVISION 2'],
     }
     teams_by_division = limited_teams_by_division
 
@@ -378,29 +386,39 @@ model = solver.model()
 print('')
 kpi_priority = ['home_away_imbalance', 'away_twice_at_same_club', 'repeat_of_old_fixture']
 for kpi_name in kpi_priority:
-    print(f'Improving KPI {kpi_name}')
+    print(f'Testing KPI {kpi_name}')
+
+    # test with all < 1
+    print(f'  All divisions  : <1? ', end='', flush=True)
+    solver.push()
+    solver.add(And(*(kpis[kpi_name] < 1 for _,(_,_,_,_,kpis) in grids_by_division.items())))
+
+    if solver.check() == sat:
+        print('yes!')
+        continue
+    else:
+        print('no, try individually...')
+        solver.pop()
+
+    # else test with each < 1,  backing off as needed
     for division, (grid, match_week, away_team_grid, home_team_grid, kpis) in grids_by_division.items():
-        kpi_limit = int(str(model[kpis[kpi_name]]))+1
-        print(f'  {division} from {kpi_limit} → ', end='', flush=True)
+        kpi_limit = 1
+        print(f'  {division:<30}: ', end='', flush=True)
         for _ in range(0, 50):
+            print(f'<{kpi_limit}? ', end='')
             solver.push()
             solver.add(kpis[kpi_name] < kpi_limit)
 
-            if kpi_limit > 0 and solver.check() == sat:
-                model = solver.model()
-                value = int(str(model[kpis[kpi_name]]))
-                if value == 0 and kpi_limit != 1:
-                    kpi_limit = 1
-                else:
-                    kpi_limit = value
-                print(f'{kpi_limit} → ', end='', flush=True)
-            else:
-                print('done')
-                solver.pop()
+            if solver.check() == sat:
+                print('yes!')
                 break
+            else:
+                kpi_limit += 1
+                print('no, ', end='', flush=True)
+                solver.pop()
+
 print('')
 
-solver.check()
 model = solver.model()
 
 
@@ -486,9 +504,11 @@ fixture_file_headers = list(fixture_file_headers) + sorted(list(set(new_column_h
 # if False and file_format == 'xlsx': ############### TESTING - REMOVE
 if file_format == 'xlsx':
     with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM') as writer:
-        #for i, fixture in enumerate(fixtures):
-            #fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
-            #fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
+        for i, fixture in enumerate(fixtures):
+            if partial_test and not fixture['Date']:
+                continue
+            fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M').time()
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
         dataframe.to_excel(writer, index=False)
 else:

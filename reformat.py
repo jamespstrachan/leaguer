@@ -66,7 +66,6 @@ for fixture in fixtures:
         fixture['rematch'] = '-'
 
 
-# if False and file_format == 'xlsx': ############### TESTING - REMOVE
 if file_format == 'xlsx':
     with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM') as writer:
         for i, fixture in enumerate(fixtures):

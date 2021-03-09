@@ -75,7 +75,7 @@ fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
 if not reformat_file_only:
     for slot in slots:
         if slot['Date']:
-            slot['Date'] = datetime.strptime(slot['Date'], date_format)
+            slot['Date'] = datetime.strptime(slot['Date'], date_format) if isinstance(slot['Date'], str) else slot['Date']
 
     team_slots = {}
     for fixture in fixtures:
@@ -511,7 +511,7 @@ if file_format == 'xlsx':
             if partial_test and not fixture['Date']:
                 continue
             fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
-            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%Y-%m-%d %H:%M:%S').time()
 
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
         dataframe.to_excel(writer, index=False)

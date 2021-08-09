@@ -3,33 +3,39 @@ import csv
 import pandas
 from datetime import datetime, timedelta
 import os
+import argparse
 
 from z3 import Bool, Int, Solver, And, Or, Not, Implies, If, sat, set_param
 
 set_param('parallel.enable', True)
 set_param('parallel.threads.max', 4)
 
-reformat_file_only = False  # Set True to skip the constraint solving and just load and re-save the file (used to improve formatting)
-partial_test       = False # Set True to only process a couple of divisions, detailed below
-file_format       = 'xlsx'
-# file_format      = 'csv'
-rest_days         = 8
-file_prefix       = '2020-08/'
-output_filename   = '{}results {}.{}'.format(file_prefix, datetime.now().strftime('%Y%b%d %H.%M.%S'), file_format)
-fixtures_filename = '{}fixtures.{}'.format(file_prefix, file_format)
-old_fixtures_filename = '{}old_fixtures.{}'.format(file_prefix, file_format)
-slots_filename    = '{}slots.{}'.format(file_prefix, file_format)
+parser = argparse.ArgumentParser()
+parser.add_argument("directory", type=str, help="path to directory containing the fixtures.xlsx and slots.xlsx files")
+parser.add_argument("start_date", type=str, help="start date for the competition in format 31/12/2021")
+parser.add_argument("-w", "--weeks", type=int, default=8)
+parser.add_argument("-r", "--restdays", type=int, default=5)
+parser.add_argument("-c", "--csv", action="store_true", help="ingest and output csv files instead of xlsx files")
+
+args = parser.parse_args()
+
+reformat_file_only = False # Set True to skip the constraint solving and just load and re-save the file (used to improve formatting)
+partial_test       = True # Set True to only process a couple of divisions, detailed below
+file_format       = 'csv' if args.csv else 'xlsx'
+rest_days         = args.restdays
+file_prefix       = args.directory.rstrip('/')
+fixtures_filename = '{}/fixtures.{}'.format(file_prefix, file_format)
+old_fixtures_filename = '{}/old_fixtures.{}'.format(file_prefix, file_format)
+slots_filename    = '{}/slots.{}'.format(file_prefix, file_format)
 date_format       = '%d/%m/%Y'
 newline           = "\r\n"
 dir_path          = os.path.dirname(os.path.realpath(__file__))
-# league_start_date = datetime.strptime('24/04/2020', date_format)
-# league_end_date   = datetime.strptime('28/06/2020', date_format)
-league_start_date = datetime.strptime('11/09/2020', date_format)
-league_end_date   = datetime.strptime('13/11/2020', date_format)
-
-weeks_in_league = (league_end_date - league_start_date).days // 7
+league_start_date = datetime.strptime(args.start_date, date_format)
+#league_end_date   = datetime.strptime('13/11/2020', date_format)
+#weeks_in_league = (league_end_date - league_start_date).days // 7
+weeks_in_league = args.weeks
 weeks = range(0, weeks_in_league)
-
+output_filename   = '{}/results-{}-{}-{}wks-{}restdays.{}'.format(file_prefix, args.directory.split('-')[-1], league_start_date.strftime('%d%b'), weeks_in_league, rest_days, file_format)
 
 if file_format == 'xlsx':
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
@@ -105,15 +111,19 @@ if not reformat_file_only:
 
     if partial_test:
         limited_teams_by_division = {
-            'MENS DIVISION 1': teams_by_division['MENS DIVISION 1'],
             # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
-            # 'LADIES DIVISION 4': teams_by_division['LADIES DIVISION 4'],
+            'LADIES DIVISION 7': teams_by_division['LADIES DIVISION 7'],
+            'LADIES DIVISION 4': teams_by_division['LADIES DIVISION 4'],
+            'LADIES DIVISION 5': teams_by_division['LADIES DIVISION 5'],
+            'LADIES DIVISION 6': teams_by_division['LADIES DIVISION 6'],
             # 'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
             # 'MIXED DIVISION 1': teams_by_division['MIXED DIVISION 1'],
             # 'MIXED DIVISION 2': teams_by_division['MIXED DIVISION 2'],
         }
-        teams_by_division = limited_teams_by_division
+        #teams_by_division = limited_teams_by_division
 
+        # special case REMOVE
+        del teams_by_division['LADIES DIVISION 1']
 
     grids_by_division = {}
     for division, teams in teams_by_division.items():
@@ -283,9 +293,13 @@ if not reformat_file_only:
             team1 = slot['Team 1']
             team2 = slot['Team 2']
             team1_division    = division_for_team[team1]
+            if partial_test and team1_division not in division_for_team:  ## temporary fudge while removing div
+                    continue
             team1_grid        = grids_by_division[team1_division][0]
             team1_oppositions = teams_by_division[team1_division]
             team2_division    = division_for_team[team2]
+            if partial_test and team2_division not in division_for_team:  ## temporary fudge while removing div
+                    continue
             team2_grid        = grids_by_division[team2_division][0]
             team2_oppositions = teams_by_division[team2_division]
             for week in weeks:

@@ -78,6 +78,30 @@ else:
 
 fixtures = [x for x in fixtures if x['Team 1'] != 'Bye']
 
+all_teams_in_fixtures = set(list(x['Team 1'] for x in fixtures) + list(x['Team 2'] for x in fixtures))
+all_teams_in_slots = list(x['Team 1'] for x in slots if x['Team 1']) + list(x['Team 2'] for x in slots if x['Team 2'])
+
+print('{} teams found in fixtures file - {} found in slots file'.format(len(all_teams_in_fixtures), len(all_teams_in_slots)))
+
+dupes_in_slots = set([x for x in all_teams_in_slots if all_teams_in_slots.count(x) > 1])
+if dupes_in_slots:
+    print("The following teams appear more than once in the slots file:")
+    print(dupes_in_slots)
+    exit()
+
+teams_in_fixtures_not_slots = all_teams_in_fixtures - set(all_teams_in_slots)
+if teams_in_fixtures_not_slots:
+    print("The following teams appear in the fixtures file but not in the slots file:")
+    print(teams_in_fixtures_not_slots)
+    exit()
+
+teams_in_slots_not_fixtures =  set(all_teams_in_slots) - all_teams_in_fixtures
+if teams_in_slots_not_fixtures:
+    print("The following teams appear in the slots file but not in the fixtures file:")
+    print(teams_in_slots_not_fixtures)
+    exit()
+
+
 if not reformat_file_only:
     for slot in slots:
         if slot['Date']:

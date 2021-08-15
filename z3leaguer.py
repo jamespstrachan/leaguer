@@ -13,14 +13,18 @@ set_param('parallel.threads.max', 4)
 parser = argparse.ArgumentParser()
 parser.add_argument("directory", type=str, help="path to directory containing the fixtures.xlsx and slots.xlsx files")
 parser.add_argument("start_date", type=str, help="start date for the competition in format 31/12/2021")
-parser.add_argument("-w", "--weeks", type=int, default=8)
-parser.add_argument("-r", "--restdays", type=int, default=5)
+parser.add_argument("-w", "--weeks", type=int, default=8, help="how many weeks from start_date the competition should run for")
+parser.add_argument("-r", "--restdays", type=int, default=5,
+                    help="the minimum number of days between successive fixtures for any team. "
+                        +"1 would mean teams could play a second match the day after a first")
+parser.add_argument("-s", "--spread", type=int, default=1, help="allows the weeks of the competition to be spread out, "+
+                                                                "eg =2 for interleaving with another competition on alternating weeks")
 parser.add_argument("-c", "--csv", action="store_true", help="ingest and output csv files instead of xlsx files")
 
 args = parser.parse_args()
 
 reformat_file_only = False # Set True to skip the constraint solving and just load and re-save the file (used to improve formatting)
-partial_test       = True # Set True to only process a couple of divisions, detailed below
+partial_test       = False # Set True to only process a couple of divisions, detailed below
 file_format       = 'csv' if args.csv else 'xlsx'
 rest_days         = args.restdays
 file_prefix       = args.directory.rstrip('/')
@@ -34,6 +38,7 @@ league_start_date = datetime.strptime(args.start_date, date_format)
 #league_end_date   = datetime.strptime('13/11/2020', date_format)
 #weeks_in_league = (league_end_date - league_start_date).days // 7
 weeks_in_league = args.weeks
+weeks_spread = args.spread
 weeks = range(0, weeks_in_league)
 output_filename   = '{}/results-{}-{}-{}wks-{}restdays.{}'.format(file_prefix, args.directory.split('-')[-1], league_start_date.strftime('%d%b'), weeks_in_league, rest_days, file_format)
 
@@ -99,6 +104,14 @@ teams_in_slots_not_fixtures =  set(all_teams_in_slots) - all_teams_in_fixtures
 if teams_in_slots_not_fixtures:
     print("The following teams appear in the slots file but not in the fixtures file:")
     print(teams_in_slots_not_fixtures)
+    exit()
+
+first_slot_dates = list(datetime.strptime(x['Date'], date_format) for x in slots)
+max_date, min_date = max(first_slot_dates), min(first_slot_dates)
+if max_date - min_date > timedelta(days=7):
+    print("The earliest date in slots file {} is more than a week before the latest date {}".format(min_date.strftime(date_format),
+                                                                                                    max_date.strftime(date_format)))
+    print("The slots file should contain a slot for every team in the first week of competition")
     exit()
 
 
@@ -418,9 +431,8 @@ if not reformat_file_only:
         solver.add(kpis_for_division(grid, match_week, away_team_grid, home_team_grid, kpis))
         print('provisional {}: {}'.format(division, solver.check()))
 
-    if not partial_test:
-        solver.add(conditions_between_divisions(grids_by_division))
-        print('Constraining shared slots: {}'.format(solver.check()))
+    solver.add(conditions_between_divisions(grids_by_division))
+    print('Constraining shared slots: {}'.format(solver.check()))
 
     model = solver.model()
 
@@ -464,7 +476,7 @@ if not reformat_file_only:
 
 
     def match_date(home_team, week):
-        return slots[team_slots[home_team]]['Date'] + timedelta(days=7*week)
+        return slots[team_slots[home_team]]['Date'] + timedelta(days=7*week*weeks_spread)
 
 
     scheduled_matches = {}

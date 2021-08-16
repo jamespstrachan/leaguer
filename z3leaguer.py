@@ -1,4 +1,3 @@
-
 import csv
 import pandas
 from datetime import datetime, timedelta
@@ -45,6 +44,8 @@ output_filename   = '{}/results-{}-{}-{}wks-{}restdays.{}'.format(file_prefix, a
 if file_format == 'xlsx':
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(fixtures_filename, "rb") as xlsxfile:
+        # New pandas loading error around Inferring datetime64[ns] might be solved through explicity use of dtype or converter
+        # see https://stackoverflow.com/questions/42958217/pandas-read-excel-datetime-converter
         fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
         fixture_file_headers = fixtures_dataframe.columns
         fixtures = fixtures_dataframe.to_dict(orient="records")
@@ -330,13 +331,13 @@ if not reformat_file_only:
             team1 = slot['Team 1']
             team2 = slot['Team 2']
             team1_division    = division_for_team[team1]
-            if partial_test and team1_division not in division_for_team:  ## temporary fudge while removing div
-                    continue
+            if partial_test and team1_division not in grids_by_division:  ## temporary fudge while removing div
+                continue
             team1_grid        = grids_by_division[team1_division][0]
             team1_oppositions = teams_by_division[team1_division]
             team2_division    = division_for_team[team2]
-            if partial_test and team2_division not in division_for_team:  ## temporary fudge while removing div
-                    continue
+            if partial_test and team2_division not in grids_by_division:  ## temporary fudge while removing div
+                continue
             team2_grid        = grids_by_division[team2_division][0]
             team2_oppositions = teams_by_division[team2_division]
             for week in weeks:
@@ -552,6 +553,27 @@ if not reformat_file_only:
 
     fixture_file_headers = list(fixture_file_headers) + sorted(list(set(new_column_headers)))
 
+
+# Check if there are clashes on shared slots
+slot_buddies = []
+dates_by_team1 = {}
+dates_by_team2 = {}
+for slot in slots:
+    if slot['Team 1'] and slot['Team 2']:
+        slot_buddies.append((slot['Team 1'], slot['Team 2']))
+        dates_by_team1[slot['Team 1']] = []
+        dates_by_team2[slot['Team 2']] = []
+for fixture in fixtures:
+    if not fixture['Date']:
+        continue
+    if fixture['Team 1'] in dates_by_team1.keys():
+        dates_by_team1[fixture['Team 1']].append(fixture['Date'])
+    if fixture['Team 1'] in dates_by_team2.keys():
+        dates_by_team2[fixture['Team 1']].append(fixture['Date'])
+for team1, team2 in slot_buddies:
+    shared_home_dates = list(x for x in set(dates_by_team1[team1]) if x in set(dates_by_team2[team2]))
+    if len(shared_home_dates):
+        print(' ! shared slot clash: {} and {} clash on {}'.format(team1, team2, ", ".join(x.strftime('%d %b') for x in shared_home_dates)))
 
 
 # if False and file_format == 'xlsx': ############### TESTING - REMOVE

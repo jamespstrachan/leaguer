@@ -46,10 +46,9 @@ if file_format == 'xlsx':
     with open(fixtures_filename, "rb") as xlsxfile:
         # New pandas loading error around Inferring datetime64[ns] might be solved through explicity use of dtype or converter
         # see https://stackoverflow.com/questions/42958217/pandas-read-excel-datetime-converter
-        fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
+        fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False, dtype={'Date': 'datetime64'})
         fixture_file_headers = fixtures_dataframe.columns
         fixtures = fixtures_dataframe.to_dict(orient="records")
-
     # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     try:
         with open(old_fixtures_filename, "rb") as xlsxfile:
@@ -583,7 +582,7 @@ if file_format == 'xlsx':
             if partial_test and not fixture['Date']:
                 continue
             fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
-            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%Y-%m-%d %H:%M:%S').time()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
 
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
         dataframe.to_excel(writer, index=False)

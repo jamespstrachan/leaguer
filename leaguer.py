@@ -49,6 +49,7 @@ if file_format == 'xlsx':
         fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False, dtype={'Date': 'datetime64'})
         fixture_file_headers = fixtures_dataframe.columns
         fixtures = fixtures_dataframe.to_dict(orient="records")
+        fixtures = [{k.strip(): v for k, v in fixture.items()} for fixture in fixtures]
     # make old fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     try:
         with open(old_fixtures_filename, "rb") as xlsxfile:
@@ -62,7 +63,7 @@ if file_format == 'xlsx':
     with open(slots_filename, "rb") as xlsxfile:
         slots_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
         slots = slots_dataframe.to_dict(orient="records")
-
+        slots = [{k.strip(): v for k, v in slot.items()} for slot in slots]
 else:
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(fixtures_filename, newline=newline) as csvfile:
@@ -88,32 +89,47 @@ all_teams_in_slots = list(x['Team 1'] for x in slots if x['Team 1']) + list(x['T
 
 print('{} teams found in fixtures file - {} found in slots file'.format(len(all_teams_in_fixtures), len(all_teams_in_slots)))
 
+error_messages = []
 dupes_in_slots = set([x for x in all_teams_in_slots if all_teams_in_slots.count(x) > 1])
 if dupes_in_slots:
-    print("The following teams appear more than once in the slots file:")
-    print(dupes_in_slots)
-    exit()
+    error_messages.append("The following teams appear more than once in the slots file:")
+    error_messages.append(dupes_in_slots)
 
 teams_in_fixtures_not_slots = all_teams_in_fixtures - set(all_teams_in_slots)
 if teams_in_fixtures_not_slots:
-    print("The following teams appear in the fixtures file but not in the slots file:")
-    print(teams_in_fixtures_not_slots)
-    exit()
+    error_messages.append("The following teams appear in the fixtures file but not in the slots file:")
+    error_messages.append(teams_in_fixtures_not_slots)
 
 teams_in_slots_not_fixtures =  set(all_teams_in_slots) - all_teams_in_fixtures
 if teams_in_slots_not_fixtures:
-    print("The following teams appear in the slots file but not in the fixtures file:")
-    print(teams_in_slots_not_fixtures)
-    exit()
+    error_messages.append("The following teams appear in the slots file but not in the fixtures file:")
+    error_messages.append(teams_in_slots_not_fixtures)
 
 first_slot_dates = list(datetime.strptime(x['Date'], date_format) for x in slots)
 max_date, min_date = max(first_slot_dates), min(first_slot_dates)
 if max_date - min_date > timedelta(days=7):
-    print("The earliest date in slots file {} is more than a week before the latest date {}".format(min_date.strftime(date_format),
-                                                                                                    max_date.strftime(date_format)))
-    print("The slots file should contain a slot for every team in the first week of competition")
-    exit()
+    error_messages.append(
+        "The earliest date in slots file {} is more than a week before the latest date {}".format(
+            min_date.strftime(date_format), max_date.strftime(date_format)
+        )
+    )
+    error_messages.append("The slots file should contain a slot for every team in the first week of competition")
 
+triangular_numbers = (3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91, 105)
+division_list = [x['Draw'] for x in fixtures]
+from collections import Counter
+num_fixtures_by_division = Counter(division_list)
+max_fixtures_in_div = 0
+for div, num_fixtures in num_fixtures_by_division.items():
+    if num_fixtures not in triangular_numbers:
+        error_messages.append(f"{div} contains {num_fixtures} which isn't correct for a round-robin competition")
+    max_fixtures_in_div = max(max_fixtures_in_div, num_fixtures)
+
+if len(error_messages):
+    print("One or more errors were found which will prevent the files from being processed:")
+    for message in error_messages:
+        print(" - " + message)
+    exit()
 
 if not reformat_file_only:
     for slot in slots:

@@ -1,3 +1,7 @@
+"""
+usage like:
+docker exec -ti leaguer_app_1 python3 leaguer.py 2023-02-MensLadies 25/04/2023 -weeks 9 -restdays 5
+"""
 import csv
 import pandas
 from datetime import datetime, timedelta
@@ -93,21 +97,21 @@ error_messages = []
 dupes_in_slots = set([x for x in all_teams_in_slots if all_teams_in_slots.count(x) > 1])
 if dupes_in_slots:
     error_messages.append("The following teams appear more than once in the slots file:")
-    error_messages.append(dupes_in_slots)
+    error_messages.append(", ".join(dupes_in_slots))
 
 teams_in_fixtures_not_slots = all_teams_in_fixtures - set(all_teams_in_slots)
 if teams_in_fixtures_not_slots:
     error_messages.append("The following teams appear in the fixtures file but not in the slots file:")
-    error_messages.append(teams_in_fixtures_not_slots)
+    error_messages.append(", ".join(teams_in_fixtures_not_slots))
 
 teams_in_slots_not_fixtures =  set(all_teams_in_slots) - all_teams_in_fixtures
 if teams_in_slots_not_fixtures:
     error_messages.append("The following teams appear in the slots file but not in the fixtures file:")
-    error_messages.append(teams_in_slots_not_fixtures)
+    error_messages.append(", ".join(teams_in_slots_not_fixtures))
 
 first_slot_dates = list(datetime.strptime(x['Date'], date_format) for x in slots)
 max_date, min_date = max(first_slot_dates), min(first_slot_dates)
-if max_date - min_date > timedelta(days=7):
+if max_date - min_date >= timedelta(days=5, hours=12):  # not a full week to avoid daylight savings
     error_messages.append(
         "The earliest date in slots file {} is more than a week before the latest date {}".format(
             min_date.strftime(date_format), max_date.strftime(date_format)

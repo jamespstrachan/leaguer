@@ -142,45 +142,49 @@ if not reformat_file_only:
 
     team_slots = {}
     for fixture in fixtures:
-        team = fixture['Team 1']
-        if team in team_slots:
-            continue
-        for i, slot in enumerate(slots):
-            if team in (slot['Team 1'], slot['Team 2']):
-                team_slots[team] = i
-                break
-        if team not in team_slots:
-            raise Exception('Team "{}" have no slot defined in {}'.format(team, slots_filename))
+        for team in (fixture['Team 1'], fixture['Team 2']):
+            if team in team_slots:
+                continue
+            for i, slot in enumerate(slots):
+                if team in (slot['Team 1'], slot['Team 2']):
+                    team_slots[team] = i
+                    break
+            if team not in team_slots:
+                raise Exception('Team "{}" have no slot defined in {}'.format(team, slots_filename))
 
 
     teams_by_division = {}
     division_for_team = {}
     for fixture in fixtures:
         division = fixture['Draw']
-        team = fixture['Team 1']
+        team1 = fixture['Team 1']
+        team2 = fixture['Team 2']
         if division not in teams_by_division:
             teams_by_division[division] = []
-        if team not in teams_by_division[division]:
-            teams_by_division[division].append(team)
-        if team not in division_for_team:
-            division_for_team[team] = division
-
+        if team1 not in teams_by_division[division]:
+            teams_by_division[division].append(team1)
+        if team1 not in division_for_team:
+            division_for_team[team1] = division
+        if len(team2.strip()):
+            if team2 not in teams_by_division[division]:
+                teams_by_division[division].append(team2)
+            if team2 not in division_for_team:
+                division_for_team[team2] = division
 
     if partial_test:
         limited_teams_by_division = {
             # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
-            'LADIES DIVISION 7': teams_by_division['LADIES DIVISION 7'],
-            'LADIES DIVISION 4': teams_by_division['LADIES DIVISION 4'],
-            'LADIES DIVISION 5': teams_by_division['LADIES DIVISION 5'],
-            'LADIES DIVISION 6': teams_by_division['LADIES DIVISION 6'],
+            'Mens Div 2': teams_by_division['Mens Div 2'],
+            #'Mens Div 2': teams_by_division['Mens Div 2'],
+            #'Mens Div 3': teams_by_division['Mens Div 3'],
+            #'Mens Div 4': teams_by_division['Mens Div 4'],
+            #'Mens Div 5': teams_by_division['Mens Div 5'],
             # 'MENS DIVISION 9': teams_by_division['MENS DIVISION 9'],
             # 'MIXED DIVISION 1': teams_by_division['MIXED DIVISION 1'],
             # 'MIXED DIVISION 2': teams_by_division['MIXED DIVISION 2'],
         }
-        #teams_by_division = limited_teams_by_division
+        teams_by_division = limited_teams_by_division
 
-        # special case REMOVE
-        del teams_by_division['LADIES DIVISION 1']
 
     grids_by_division = {}
     for division, teams in teams_by_division.items():
@@ -602,7 +606,7 @@ if file_format == 'xlsx':
             if partial_test and not fixture['Date']:
                 continue
             fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
-            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M:%S').time()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M').time()
 
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
         dataframe.to_excel(writer, index=False)

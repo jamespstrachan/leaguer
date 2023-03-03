@@ -59,6 +59,7 @@ if file_format == 'xlsx':
         with open(old_fixtures_filename, "rb") as xlsxfile:
             old_fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
             old_fixtures = old_fixtures_dataframe.to_dict(orient="records")
+        print('old fixture file found, we will attempt to reverse home/away fixtures based on that previous league')
     except IOError:
         print('no old fixture file found, home/away won\'t be reversed based on a previous league')
         old_fixtures = []
@@ -111,7 +112,7 @@ if teams_in_slots_not_fixtures:
 
 first_slot_dates = list(datetime.strptime(x['Date'], date_format) for x in slots)
 max_date, min_date = max(first_slot_dates), min(first_slot_dates)
-if max_date - min_date >= timedelta(days=5, hours=12):  # not a full week to avoid daylight savings
+if max_date - min_date >= timedelta(days=6, hours=12):  # not a full week to avoid daylight savings
     error_messages.append(
         "The earliest date in slots file {} is more than a week before the latest date {}".format(
             min_date.strftime(date_format), max_date.strftime(date_format)
@@ -526,7 +527,8 @@ if not reformat_file_only:
 
         print('Home/Away imbalance     = {}'.format(model[kpis['home_away_imbalance']]))
         print('Away twice at same club = {}'.format(model[kpis['away_twice_at_same_club']]))
-        print('Repeat of old fixture   = {}'.format(model[kpis['repeat_of_old_fixture']]))
+        if old_fixtures:
+            print('Repeat of old fixture   = {}'.format(model[kpis['repeat_of_old_fixture']]))
 
         # for team1 in teams:
             # for team2 in teams:

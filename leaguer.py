@@ -1,6 +1,6 @@
 """
 usage like:
-docker exec -ti leaguer_app_1 python3 leaguer.py 2023-02-MensLadies 25/04/2023 -weeks 9 -restdays 5
+docker exec -ti leaguer_app_1 python3 leaguer.py 2023-02-MensLadies 25/04/2023 --weeks 9 --restdays 5
 """
 import csv
 import pandas
@@ -139,7 +139,10 @@ if len(error_messages):
 if not reformat_file_only:
     for slot in slots:
         if slot['Date']:
-            slot['Date'] = datetime.strptime(slot['Date'], date_format) if isinstance(slot['Date'], str) else slot['Date']
+            dt = datetime.strptime(slot['Date'], date_format) if isinstance(slot['Date'], str) else slot['Date']
+            # move slot date into first week of competition
+            days_diff = (dt.weekday() - league_start_date.weekday() + 7) % 7
+            slot['Date'] = league_start_date + timedelta(days=days_diff)
 
     team_slots = {}
     for fixture in fixtures:

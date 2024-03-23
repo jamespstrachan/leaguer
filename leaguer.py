@@ -130,6 +130,13 @@ for div, num_fixtures in num_fixtures_by_division.items():
         error_messages.append(f"{div} contains {num_fixtures} which isn't correct for a round-robin competition")
     max_fixtures_in_div = max(max_fixtures_in_div, num_fixtures)
 
+for i, slot in enumerate(slots):
+    try:
+        datetime.strptime(str(slot['Time']).strip(), '%H:%M').time()
+    except ValueError:
+        error_messages.append(f'invalid time in slots file line {i}: "{slot["Time"]}"')
+
+
 if len(error_messages):
     print("One or more errors were found which will prevent the files from being processed:")
     for message in error_messages:
@@ -178,7 +185,10 @@ if not reformat_file_only:
     if partial_test:
         limited_teams_by_division = {
             # 'MENS DIVISION 2': teams_by_division['MENS DIVISION 2'],
-            'Mens Div 2': teams_by_division['Mens Div 2'],
+            'Mens Cambs Summer League 2024 Mens Division 1': teams_by_division['Mens Cambs Summer League 2024 Mens Division 1'],
+            #'Mens Cambs Summer League 2024 Mens Division 2 ': teams_by_division['Mens Cambs Summer League 2024 Mens Division 2 '],
+            #'Mens Cambs Summer League 2024 Mens Division 3': teams_by_division['Mens Cambs Summer League 2024 Mens Division 3'],
+            #'Mens Cambs Summer League 2024 Mens Division 4': teams_by_division['Mens Cambs Summer League 2024 Mens Division 4'],
             #'Mens Div 2': teams_by_division['Mens Div 2'],
             #'Mens Div 3': teams_by_division['Mens Div 3'],
             #'Mens Div 4': teams_by_division['Mens Div 4'],
@@ -582,36 +592,38 @@ if not reformat_file_only:
     fixture_file_headers = list(fixture_file_headers) + sorted(list(set(new_column_headers)))
 
 
-# Check if there are clashes on shared slots
-slot_buddies = []
-dates_by_team1 = {}
-dates_by_team2 = {}
-for slot in slots:
-    if slot['Team 1'] and slot['Team 2']:
-        slot_buddies.append((slot['Team 1'], slot['Team 2']))
-        dates_by_team1[slot['Team 1']] = []
-        dates_by_team2[slot['Team 2']] = []
-for fixture in fixtures:
-    if not fixture['Date']:
-        continue
-    if fixture['Team 1'] in dates_by_team1.keys():
-        dates_by_team1[fixture['Team 1']].append(fixture['Date'])
-    if fixture['Team 1'] in dates_by_team2.keys():
-        dates_by_team2[fixture['Team 1']].append(fixture['Date'])
-for team1, team2 in slot_buddies:
-    shared_home_dates = list(x for x in set(dates_by_team1[team1]) if x in set(dates_by_team2[team2]))
-    if len(shared_home_dates):
-        print(' ! shared slot clash: {} and {} clash on {}'.format(team1, team2, ", ".join(x.strftime('%d %b') for x in shared_home_dates)))
+if not partial_test:
+    # Check if there are clashes on shared slots
+    slot_buddies = []
+    dates_by_team1 = {}
+    dates_by_team2 = {}
+    for slot in slots:
+        if slot['Team 1'] and slot['Team 2']:
+            slot_buddies.append((slot['Team 1'], slot['Team 2']))
+            dates_by_team1[slot['Team 1']] = []
+            dates_by_team2[slot['Team 2']] = []
+    for fixture in fixtures:
+        if not fixture['Date']:
+            continue
+        if fixture['Team 1'] in dates_by_team1.keys():
+            dates_by_team1[fixture['Team 1']].append(fixture['Date'])
+        if fixture['Team 1'] in dates_by_team2.keys():
+            dates_by_team2[fixture['Team 1']].append(fixture['Date'])
+    for team1, team2 in slot_buddies:
+        shared_home_dates = list(x for x in set(dates_by_team1[team1]) if x in set(dates_by_team2[team2]))
+        if len(shared_home_dates):
+            dates_str = ", ".join(x.strftime('%d %b') for x in shared_home_dates)
+            print(f" ! shared slot clash: {team1} and {team2} clash on {dates_str}")
 
 
 # if False and file_format == 'xlsx': ############### TESTING - REMOVE
 if file_format == 'xlsx':
     with pandas.ExcelWriter(os.path.join(dir_path, output_filename), date_format='dd/mm/yyyy', datetime_format='HH:MM:SS') as writer:
         for i, fixture in enumerate(fixtures):
-            if partial_test and not fixture['Date']:
+            if partial_test and (not fixture["Date"] or pandas.isnull(fixture["Date"])):
                 continue
             fixtures[i]['Date'] = datetime.strptime(fixture['Date'], date_format).date()
-            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']), '%H:%M').time()
+            fixtures[i]['Time'] = datetime.strptime(str(fixtures[i]['Time']).strip(), '%H:%M').time()
 
         dataframe = pandas.DataFrame.from_records(fixtures, columns=fixture_file_headers)
         dataframe.to_excel(writer, index=False)

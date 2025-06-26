@@ -1,6 +1,6 @@
 """
 usage like:
-docker exec -ti leaguer_app_1 python3 leaguer.py 2023-02-MensLadies 25/04/2023 --weeks 9 --restdays 5
+docker exec -ti leaguer-app-1 python3 leaguer.py 2025-06-Mixed 04/07/2025 --weeks 6 --restdays 6
 """
 import csv
 import pandas
@@ -50,7 +50,7 @@ if file_format == 'xlsx':
     with open(fixtures_filename, "rb") as xlsxfile:
         # New pandas loading error around Inferring datetime64[ns] might be solved through explicity use of dtype or converter
         # see https://stackoverflow.com/questions/42958217/pandas-read-excel-datetime-converter
-        fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False, dtype={'Date': 'datetime64'})
+        fixtures_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False, dtype={'Date': 'datetime64[s]'})
         fixture_file_headers = fixtures_dataframe.columns
         fixtures = fixtures_dataframe.to_dict(orient="records")
         fixtures = [{k.strip(): v for k, v in fixture.items()} for fixture in fixtures]
@@ -68,7 +68,7 @@ if file_format == 'xlsx':
     with open(slots_filename, "rb") as xlsxfile:
         slots_dataframe = pandas.read_excel(xlsxfile, engine="openpyxl", na_filter=False)
         slots = slots_dataframe.to_dict(orient="records")
-        slots = [{k.strip(): v for k, v in slot.items()} for slot in slots]
+        slots = [{(k.strip() if isinstance(k, str) else k): v for k, v in slot.items()} for slot in slots]
 else:
     # make fixtures list of dicts with keys: Date,Time,League Type,Event,Draw,Nr,Team 1,Team 2,Court,Location
     with open(fixtures_filename, newline=newline) as csvfile:
@@ -110,7 +110,7 @@ if teams_in_slots_not_fixtures:
     error_messages.append("The following teams appear in the slots file but not in the fixtures file:")
     error_messages.append(", ".join(teams_in_slots_not_fixtures))
 
-first_slot_dates = list(datetime.strptime(x['Date'], date_format) for x in slots)
+first_slot_dates = list((datetime.strptime(x['Date'].strip(), date_format) if isinstance(x['Date'], str) else x['Date']) for x in slots)
 max_date, min_date = max(first_slot_dates), min(first_slot_dates)
 if max_date - min_date >= timedelta(days=6, hours=12):  # not a full week to avoid daylight savings
     error_messages.append(
@@ -146,7 +146,7 @@ if len(error_messages):
 if not reformat_file_only:
     for slot in slots:
         if slot['Date']:
-            dt = datetime.strptime(slot['Date'], date_format) if isinstance(slot['Date'], str) else slot['Date']
+            dt = datetime.strptime(slot['Date'].strip(), date_format) if isinstance(slot['Date'], str) else slot['Date']
             # move slot date into first week of competition
             days_diff = (dt.weekday() - league_start_date.weekday() + 7) % 7
             slot['Date'] = league_start_date + timedelta(days=days_diff)

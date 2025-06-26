@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LTA County Leagues Nominations Checker</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx) library for reading Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        /* A little extra style for the file input button */
+        .file-input-button {
+            background: linear-gradient(145deg, #5c67f2, #737eff);
+            transition: all 0.3s ease;
+        }
+        .file-input-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        /*
+         * Explicitly define the spin animation to ensure it works.
+         * The 'animate-spin' class from Tailwind will use this.
+         */
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans">
+
+    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-6xl mx-4">
+
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">LTA County Leagues Nominations Checker</h1>
+            <p class="text-gray-600 mt-2">
+                Choose an output file from Tournament Software (.xlsx) to examine its contents below.
+                This data is not stored or uploaded to a server.
+            </p>
+        </div>
+
+        <!-- File Input Form -->
+        <div class="flex items-center justify-center">
+            <label for="file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
+                <!-- Loading Spinner (hidden by default) -->
+                <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <!-- Button Text -->
+                <span id="button-text">Choose XLSX File</span>
+            </label>
+            <input id="file-upload" type="file" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        </div>
+        <p id="file-name" class="text-center text-gray-500 mt-4 h-5"></p>
+
+        <!-- Div where the resulting HTML table will be displayed -->
+        <div id="output" class="mt-8 overflow-x-auto">
+             <p class="text-center text-gray-500">No file selected. Data will appear here.</p>
+        </div>
+
+    </div>
+
+    <script>
+        // Get the file input element from the DOM
+        const fileUpload = document.getElementById('file-upload');
+        // Get the div where we will display the output
+        const outputDiv = document.getElementById('output');
+        // Get the p element to show the file name
+        const fileNameDisplay = document.getElementById('file-name');
+        // Get button elements for loading state
+        const buttonText = document.getElementById('button-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        // Add an event listener for when a file is selected
+        fileUpload.addEventListener('change', handleFile, false);
+
+        /**
+         * Toggles the loading state of the upload button.
+         * @param {boolean} isLoading True to show spinner, false to show text.
+         */
+        function setButtonLoading(isLoading) {
+            if (isLoading) {
+                // Change the text and show the spinner
+                buttonText.textContent = 'Loading File...';
+                loadingSpinner.classList.remove('hidden');
+                fileUpload.disabled = true; // Disable input while loading
+            } else {
+                // Reset the text and hide the spinner
+                buttonText.textContent = 'Choose XLSX File';
+                loadingSpinner.classList.add('hidden');
+                fileUpload.disabled = false; // Re-enable input
+            }
+        }
+
+        /**
+         * Handles the file selection event.
+         * @param {Event} e The event object from the file input.
+         */
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                fileNameDisplay.textContent = '';
+                outputDiv.innerHTML = '<p class="text-center text-gray-500">No file selected. Data will appear here.</p>';
+                return;
+            }
+
+            fileNameDisplay.textContent = `Selected file: ${file.name}`;
+            setButtonLoading(true);
+
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                try {
+                    const data = event.target.result;
+                    const workbook = XLSX.read(data, { type: 'binary' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    // Process player fixture data and generate the new summary tables
+                    const playerFixtures = processPlayerFixtures(jsonData);
+                    const playerSummaryTables = createPlayerSummaryTables(playerFixtures);
+
+                    // Convert the full raw data to an HTML table for display
+                    const rawDataTable = jsonToHtmlTable(jsonData);
+
+                    // Display all tables, with the new summary tables first.
+                    outputDiv.innerHTML = playerSummaryTables + '<h2 class="text-2xl font-semibold text-gray-700 mt-8 mb-4">Raw Data</h2>' + rawDataTable;
+
+                } catch (err) {
+                    console.error("Error processing file: ", err);
+                    outputDiv.innerHTML = `<p class="text-center text-red-500">Error processing file. It might not be a valid XLSX file. Check console for details.</p>`;
+                } finally {
+                    setButtonLoading(false); // Reset button on success or error
+                }
+            };
+
+            reader.onerror = function(event) {
+                console.error("File could not be read! Code " + event.target.error.code);
+                outputDiv.innerHTML = '<p class="text-center text-red-500">Error reading file. Please check the console.</p>';
+                setButtonLoading(false); // Reset button on error
+            };
+
+            reader.readAsBinaryString(file);
+        }
+
+        /**
+         * Parses the integer rank from the end of a team name string.
+         * @param {string} teamName The name of the team.
+         * @returns {number} The parsed rank, or Infinity if no rank is found.
+         */
+        function getTeamRank(teamName) {
+            if (typeof teamName !== 'string') return Infinity;
+            const match = teamName.match(/\d+$/); // Match digits at the end of the string
+            return match ? parseInt(match[0], 10) : Infinity;
+        }
+
+        /**
+         * Formats a Date object into a readable string like "Monday 1st January 2025".
+         * @param {Date} date The date object to format.
+         * @returns {string} The formatted date string.
+         */
+        function formatFixtureDate(date) {
+            const day = date.getUTCDate();
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+            const month = date.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+            const year = date.getUTCFullYear();
+
+            function getDaySuffix(day) {
+                if (day > 3 && day < 21) return 'th';
+                switch (day % 10) {
+                    case 1:  return "st";
+                    case 2:  return "nd";
+                    case 3:  return "rd";
+                    default: return "th";
+                }
+            }
+
+            return `${weekday} ${day}${getDaySuffix(day)} ${month} ${year}`;
+        }
+
+        /**
+         * Processes the raw data to build a structured map of players and their fixtures.
+         * A fixture is a unique combination of Division, HomeTeam, AwayTeam, and MatchDate.
+         * @param {Array<Array<any>>} jsonData The raw data from the Excel file.
+         * @returns {Object} An object where keys are member IDs and values are arrays of sorted fixture objects.
+         */
+        function processPlayerFixtures(jsonData) {
+            const headerRow = jsonData[0] || [];
+            const headerMap = {};
+            headerRow.forEach((header, index) => { headerMap[header] = index; });
+
+            const playerFixturesTemp = {};
+
+            for (let i = 1; i < jsonData.length; i++) {
+                const row = jsonData[i];
+                const division = row[headerMap["Division"]];
+                const homeTeam = row[headerMap["HomeTeamName"]];
+                const awayTeam = row[headerMap["AwayTeamName"]];
+
+                let matchDateNum = row[headerMap["MatchDate"]];
+                let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
+                    ? new Date(Date.UTC(1899, 11, 30 + matchDateNum))
+                    : new Date(matchDateNum);
+
+                if (isNaN(matchDate.getTime()) || !division || !homeTeam || !awayTeam) continue;
+
+                const fixtureKey = `${matchDate.toISOString().split('T')[0]}|${division}|${homeTeam}|${awayTeam}`;
+
+                const playerSlots = [
+                    { team: homeTeam, id: row[headerMap["HomeTeamPlayer1_Memberid"]] },
+                    { team: homeTeam, id: row[headerMap["HomeTeamPlayer2_Memberid"]] },
+                    { team: awayTeam, id: row[headerMap["AwayTeamPlayer1_Memberid"]] },
+                    { team: awayTeam, id: row[headerMap["AwayTeamPlayer2_Memberid"]] }
+                ];
+
+                playerSlots.forEach(slot => {
+                    if (slot.id != null && slot.id !== '') {
+                        if (!playerFixturesTemp[slot.id]) {
+                            playerFixturesTemp[slot.id] = {};
+                        }
+                        playerFixturesTemp[slot.id][fixtureKey] = { date: matchDate, team: slot.team };
+                    }
+                });
+            }
+
+            const playerFixturesFinal = {};
+            for (const memberId in playerFixturesTemp) {
+                const fixtures = Object.values(playerFixturesTemp[memberId]);
+                fixtures.sort((a, b) => a.date - b.date);
+                playerFixturesFinal[memberId] = fixtures;
+            }
+
+            return playerFixturesFinal;
+        }
+
+        function isPlayerProblematic(memberId, playerFixtures) {
+            const fixtures = playerFixtures[memberId] || [];
+            if (fixtures.length <= 1) return false;
+
+            for (let i = 1; i < fixtures.length; i++) {
+                const prevRank = getTeamRank(fixtures[i - 1].team);
+                const currentRank = getTeamRank(fixtures[i].team);
+
+                if (currentRank > prevRank) {
+                    let betterTeamCount = 0;
+                    for (let j = 0; j < i; j++) {
+                        if (getTeamRank(fixtures[j].team) < currentRank) {
+                            betterTeamCount++;
+                        }
+                    }
+                    if (betterTeamCount >= 3) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function createPlayerSummaryTables(playerFixtures) {
+            const memberIds = Object.keys(playerFixtures).sort((a, b) => a - b);
+
+            if (memberIds.length === 0) {
+                return '<h2 class="text-2xl font-semibold text-gray-700 mb-4">No Player Fixture Data Found</h2>';
+            }
+
+            const playedDownIds = [], playedUpOnlyIds = [], loyalIds = [];
+
+            memberIds.forEach(id => {
+                const fixtures = playerFixtures[id];
+                if (fixtures.length <= 1) {
+                    loyalIds.push(id);
+                    return;
+                }
+
+                if (fixtures.every(f => f.team === fixtures[0].team)) {
+                    loyalIds.push(id);
+                    return;
+                }
+
+                if (fixtures.some((f, i) => i > 0 && getTeamRank(f.team) > getTeamRank(fixtures[i-1].team))) {
+                    playedDownIds.push(id);
+                } else {
+                    playedUpOnlyIds.push(id);
+                }
+            });
+
+            playedDownIds.sort((a, b) => {
+                const isAProblematic = isPlayerProblematic(a, playerFixtures);
+                const isBProblematic = isPlayerProblematic(b, playerFixtures);
+                if (isAProblematic && !isBProblematic) return -1;
+                if (!isAProblematic && isBProblematic) return 1;
+                return a - b;
+            });
+
+            let maxFixtures = 0;
+            memberIds.forEach(id => {
+                if (playerFixtures[id].length > maxFixtures) {
+                    maxFixtures = playerFixtures[id].length;
+                }
+            });
+
+            const buildTableHtml = (title, idsToRender, isGrayedOut, checkProblem) => {
+                if (idsToRender.length === 0) return '';
+
+                let table = `
+                    <div class="mb-8">
+                        <h2 class="text-2xl font-semibold text-gray-700 mb-4">${title} (${idsToRender.length})</h2>
+                        <table class="min-w-full divide-y divide-gray-200 border border-gray-300">
+                            <thead class="bg-gray-50"><tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member ID</th>`;
+                for (let i = 1; i <= maxFixtures; i++) {
+                    table += `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fixture ${i}</th>`;
+                }
+                table += `</tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+
+                idsToRender.forEach(id => {
+                    const fixtures = playerFixtures[id];
+                    const rowClass = isGrayedOut ? 'class="bg-gray-100 text-gray-500"' : '';
+                    const isProblemPlayer = checkProblem && isPlayerProblematic(id, playerFixtures);
+
+                    table += `<tr ${rowClass}>`;
+                    const idCellClass = isProblemPlayer ? "bg-red-100 text-red-700 font-bold" : (isGrayedOut ? '' : 'text-gray-900');
+                    table += `<td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${idCellClass}">${id}</td>`;
+
+                    for (let i = 0; i < maxFixtures; i++) {
+                        let cellClass = "px-6 py-4 whitespace-nowrap text-sm";
+                        let cellContent = '';
+
+                        if (fixtures[i]) {
+                            cellContent = `<div>${fixtures[i].team}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}</div>`;
+                             if (checkProblem && i > 0 && fixtures[i-1]) {
+                                 const prevRank = getTeamRank(fixtures[i-1].team);
+                                 const currentRank = getTeamRank(fixtures[i].team);
+
+                                 if (currentRank > prevRank) {
+                                     let betterTeamCount = 0;
+                                     for (let j = 0; j < i; j++) {
+                                         if (getTeamRank(fixtures[j].team) < currentRank) {
+                                             betterTeamCount++;
+                                         }
+                                     }
+                                     if (betterTeamCount >= 3) {
+                                         cellClass += " bg-red-100 text-red-700 font-bold";
+                                     }
+                                 }
+                            }
+                        }
+                        table += `<td class="${cellClass}">${cellContent}</td>`;
+                    }
+                    table += '</tr>';
+                });
+
+                table += `</tbody></table></div>`;
+                return table;
+            };
+
+            const table1 = buildTableHtml("Players who played down", playedDownIds, false, true);
+            const table2 = buildTableHtml("Players who only played up", playedUpOnlyIds, false, false);
+            const table3 = buildTableHtml("Players who only played for one team", loyalIds, true, false);
+
+            return table1 + table2 + table3;
+        }
+
+        function jsonToHtmlTable(jsonArray) {
+            if (!jsonArray || jsonArray.length === 0) {
+                return '<p class="text-center text-gray-500">The selected file is empty or could not be read.</p>';
+            }
+
+            let table = '<table class="min-w-full divide-y divide-gray-200 border border-gray-300">';
+            const headerRow = jsonArray[0] || [];
+            table += '<thead class="bg-gray-50"><tr>';
+            headerRow.forEach(cell => {
+                table += `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${cell}</th>`;
+            });
+            table += '</tr></thead>';
+
+            table += '<tbody class="bg-white divide-y divide-gray-200">';
+            const bodyRows = jsonArray.slice(1);
+            bodyRows.forEach(row => {
+                table += '<tr>';
+                for (let i = 0; i < headerRow.length; i++) {
+                    const cell = row[i];
+                    table += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${cell != null ? cell : ''}</td>`;
+                }
+                table += '</tr>';
+            });
+            table += '</tbody></table>';
+            return table;
+        }
+    </script>
+
+</body>
+</html>

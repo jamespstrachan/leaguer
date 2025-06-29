@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LTA County Leagues Nominations Checker</title>
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- SheetJS (xlsx) library for reading Excel files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         /* A little extra style for the file input button */
@@ -44,247 +42,326 @@
             </p>
         </div>
 
-        <!-- File Input Form -->
-        <div class="flex items-center justify-center">
-            <label for="file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
-                <!-- Loading Spinner (hidden by default) -->
-                <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        <div class="flex items-center justify-center gap-8">
+            <div class="flex items-center gap-2">
+                <label for="matches-file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
+                    <span>Choose Matches File</span>
+                </label>
+                <input id="matches-file-upload" type="file" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                <svg id="matches-tick" class="h-6 w-6 text-green-500 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
-                <!-- Button Text -->
-                <span id="button-text">Choose XLSX File</span>
-            </label>
-            <input id="file-upload" type="file" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+            </div>
+            <div class="flex items-center gap-2">
+                <label for="nominations-file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
+                    <span>Choose Nominations File</span>
+                </label>
+                <input id="nominations-file-upload" type="file" class="hidden" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                 <svg id="nominations-tick" class="h-6 w-6 text-green-500 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+            </div>
         </div>
-        <p id="file-name" class="text-center text-gray-500 mt-4 h-5"></p>
 
-        <!-- Div where the resulting HTML table will be displayed -->
-        <div id="output" class="mt-8 overflow-x-auto">
-             <p class="text-center text-gray-500">No file selected. Data will appear here.</p>
+        <div class="text-center mt-4">
+             <button id="reuse-files-button" class="text-sm text-blue-600 hover:underline hidden">
+                Reuse most recently uploaded files
+            </button>
+        </div>
+
+        <div id="main-loader" class="flex items-center justify-center mt-6 hidden">
+             <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="text-gray-700 font-semibold">Loading...</span>
+        </div>
+
+        <div id="output" class="mt-8">
+             <p class="text-center text-gray-500">Please select both a matches file and a nominations file.</p>
         </div>
 
     </div>
 
     <script>
-        // Get the file input element from the DOM
-        const fileUpload = document.getElementById('file-upload');
-        // Get the div where we will display the output
+        // --- DOM Element References ---
+        const matchesFileUpload = document.getElementById('matches-file-upload');
+        const nominationsFileUpload = document.getElementById('nominations-file-upload');
+        const matchesTick = document.getElementById('matches-tick');
+        const nominationsTick = document.getElementById('nominations-tick');
+        const mainLoader = document.getElementById('main-loader');
         const outputDiv = document.getElementById('output');
-        // Get the p element to show the file name
-        const fileNameDisplay = document.getElementById('file-name');
-        // Get button elements for loading state
-        const buttonText = document.getElementById('button-text');
-        const loadingSpinner = document.getElementById('loading-spinner');
+        const reuseFilesButton = document.getElementById('reuse-files-button');
 
-        // Add an event listener for when a file is selected
-        fileUpload.addEventListener('change', handleFile, false);
+        // --- State Management ---
+        let matchesFile = null;
+        let nominationsFile = null;
+
+        // --- Event Listeners ---
+        matchesFileUpload.addEventListener('change', (e) => {
+            matchesFile = e.target.files[0];
+            matchesTick.classList.toggle('hidden', !matchesFile);
+            if (matchesFile && nominationsFile) tryToProcessFiles();
+        });
+
+        nominationsFileUpload.addEventListener('change', (e) => {
+            nominationsFile = e.target.files[0];
+            nominationsTick.classList.toggle('hidden', !nominationsFile);
+            if (matchesFile && nominationsFile) tryToProcessFiles();
+        });
+
+        reuseFilesButton.addEventListener('click', () => {
+            const lastMatchesData = localStorage.getItem('lastMatchesFile');
+            const lastNominationsData = localStorage.getItem('lastNominationsFile');
+            if (lastMatchesData && lastNominationsData) {
+                processAllData(lastMatchesData, lastNominationsData);
+            }
+        });
+
+        // --- On Page Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const lastMatchesName = localStorage.getItem('lastMatchesFileName');
+            const lastNominationsName = localStorage.getItem('lastNominationsFileName');
+            if (lastMatchesName && lastNominationsName) {
+                reuseFilesButton.textContent = `Reuse most recently uploaded files (${lastMatchesName} and ${lastNominationsName})`;
+                reuseFilesButton.classList.remove('hidden');
+            }
+        });
+
 
         /**
-         * Toggles the loading state of the upload button.
-         * @param {boolean} isLoading True to show spinner, false to show text.
+         * Toggles the main loading indicator visibility.
+         * @param {boolean} isLoading True to show spinner, false to hide.
          */
-        function setButtonLoading(isLoading) {
-            if (isLoading) {
-                // Change the text and show the spinner
-                buttonText.textContent = 'Loading File...';
-                loadingSpinner.classList.remove('hidden');
-                fileUpload.disabled = true; // Disable input while loading
-            } else {
-                // Reset the text and hide the spinner
-                buttonText.textContent = 'Choose XLSX File';
-                loadingSpinner.classList.add('hidden');
-                fileUpload.disabled = false; // Re-enable input
+        function setMainLoading(isLoading) {
+            mainLoader.classList.toggle('hidden', !isLoading);
+        }
+
+        /**
+         * Promisified FileReader to read a file as a Data URL (base64).
+         * @param {File} file The file to read.
+         * @returns {Promise<string>} A promise that resolves with the file's data URL.
+         */
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (event) => resolve(event.target.result);
+                reader.onerror = (error) => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        /**
+         * Core processing function.
+         * @param {string} matchesDataURL The base64 data URL for the matches file.
+         * @param {string} nominationsDataURL The base64 data URL for the nominations file.
+         */
+        function processAllData(matchesDataURL, nominationsDataURL) {
+            setMainLoading(true);
+            try {
+                // Decode base64 and process matches data
+                const matchesData = atob(matchesDataURL.substring(matchesDataURL.indexOf(',') + 1));
+                const matchesWorkbook = XLSX.read(matchesData, { type: 'binary' });
+                const matchesSheetName = matchesWorkbook.SheetNames[0];
+                const matchesWorksheet = matchesWorkbook.Sheets[matchesSheetName];
+                const matchesJsonData = XLSX.utils.sheet_to_json(matchesWorksheet, { header: 1 });
+                const playerFixtures = processPlayerFixtures(matchesJsonData);
+
+                // Decode base64 and process nominations data
+                const nominationsData = atob(nominationsDataURL.substring(nominationsDataURL.indexOf(',') + 1));
+                const nominationsWorkbook = XLSX.read(nominationsData, { type: 'binary' });
+                const nominationsSheetName = nominationsWorkbook.SheetNames[0];
+                const nominationsWorksheet = nominationsWorkbook.Sheets[nominationsSheetName];
+                const nominationsJsonData = XLSX.utils.sheet_to_json(nominationsWorksheet, { header: 1 });
+                const nominationsMap = createNominationsMap(nominationsJsonData);
+
+                // Generate and display tables
+                const playerSummaryTables = createPlayerSummaryTables(playerFixtures, nominationsMap);
+                outputDiv.innerHTML = playerSummaryTables;
+
+            } catch (err) {
+                console.error("Error processing files: ", err);
+                outputDiv.innerHTML = `<p class="text-center text-red-500">Error processing a file. It might not be a valid XLSX file. Check console for details.</p>`;
+            } finally {
+                setMainLoading(false);
             }
         }
 
         /**
-         * Handles the file selection event.
-         * @param {Event} e The event object from the file input.
+         * Reads the selected files, caches them, and starts processing.
          */
-        function handleFile(e) {
-            const file = e.target.files[0];
-            if (!file) {
-                fileNameDisplay.textContent = '';
-                outputDiv.innerHTML = '<p class="text-center text-gray-500">No file selected. Data will appear here.</p>';
-                return;
+        function tryToProcessFiles() {
+            setMainLoading(true);
+            Promise.all([readFileAsDataURL(matchesFile), readFileAsDataURL(nominationsFile)])
+                .then(([matchesDataURL, nominationsDataURL]) => {
+                    // Cache the file data and names
+                    localStorage.setItem('lastMatchesFile', matchesDataURL);
+                    localStorage.setItem('lastNominationsFile', nominationsDataURL);
+                    localStorage.setItem('lastMatchesFileName', matchesFile.name);
+                    localStorage.setItem('lastNominationsFileName', nominationsFile.name);
+
+                    // Update and show the reuse button
+                    reuseFilesButton.textContent = `Reuse most recently uploaded files (${matchesFile.name} and ${nominationsFile.name})`;
+                    reuseFilesButton.classList.remove('hidden');
+
+                    // Process the data
+                    processAllData(matchesDataURL, nominationsDataURL);
+                })
+                .catch(err => {
+                    console.error("Error reading files: ", err);
+                    outputDiv.innerHTML = `<p class="text-center text-red-500">Error reading a file. Please check the console.</p>`;
+                    setMainLoading(false);
+                });
+        }
+
+        function createNominationsMap(jsonData) {
+            const map = {};
+            if (!jsonData || jsonData.length < 2) return map;
+            const headerRow = jsonData[0];
+            const memberIdIndex = headerRow.indexOf("Member ID");
+            const nominatedTeamIndex = headerRow.indexOf("Nominated Team");
+            if (memberIdIndex === -1 || nominatedTeamIndex === -1) {
+                console.warn("'Member ID' or 'Nominated Team' column not found in nominations file.");
+                return map;
             }
-
-            fileNameDisplay.textContent = `Selected file: ${file.name}`;
-            setButtonLoading(true);
-
-            const reader = new FileReader();
-
-            reader.onload = function(event) {
-                try {
-                    const data = event.target.result;
-                    const workbook = XLSX.read(data, { type: 'binary' });
-                    const firstSheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[firstSheetName];
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-                    // Process player fixture data and generate the new summary tables
-                    const playerFixtures = processPlayerFixtures(jsonData);
-                    const playerSummaryTables = createPlayerSummaryTables(playerFixtures);
-
-                    // Convert the full raw data to an HTML table for display
-                    const rawDataTable = jsonToHtmlTable(jsonData);
-
-                    // Display all tables, with the new summary tables first.
-                    outputDiv.innerHTML = playerSummaryTables + '<h2 class="text-2xl font-semibold text-gray-700 mt-8 mb-4">Raw Data</h2>' + rawDataTable;
-
-                } catch (err) {
-                    console.error("Error processing file: ", err);
-                    outputDiv.innerHTML = `<p class="text-center text-red-500">Error processing file. It might not be a valid XLSX file. Check console for details.</p>`;
-                } finally {
-                    setButtonLoading(false); // Reset button on success or error
+            for (let i = 1; i < jsonData.length; i++) {
+                const row = jsonData[i];
+                const memberId = row[memberIdIndex];
+                const nominatedTeam = row[nominatedTeamIndex];
+                if (memberId != null && nominatedTeam != null) {
+                    map[memberId] = nominatedTeam;
                 }
-            };
-
-            reader.onerror = function(event) {
-                console.error("File could not be read! Code " + event.target.error.code);
-                outputDiv.innerHTML = '<p class="text-center text-red-500">Error reading file. Please check the console.</p>';
-                setButtonLoading(false); // Reset button on error
-            };
-
-            reader.readAsBinaryString(file);
+            }
+            return map;
         }
 
-        /**
-         * Parses the integer rank from the end of a team name string.
-         * @param {string} teamName The name of the team.
-         * @returns {number} The parsed rank, or Infinity if no rank is found.
-         */
         function getTeamRank(teamName) {
             if (typeof teamName !== 'string') return Infinity;
-            const match = teamName.match(/\d+$/); // Match digits at the end of the string
+            const match = teamName.match(/\d+$/);
             return match ? parseInt(match[0], 10) : Infinity;
         }
 
-        /**
-         * Formats a Date object into a readable string like "Monday 1st January 2025".
-         * @param {Date} date The date object to format.
-         * @returns {string} The formatted date string.
-         */
         function formatFixtureDate(date) {
             const day = date.getUTCDate();
             const weekday = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
             const month = date.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
             const year = date.getUTCFullYear();
-
-            function getDaySuffix(day) {
-                if (day > 3 && day < 21) return 'th';
-                switch (day % 10) {
-                    case 1:  return "st";
-                    case 2:  return "nd";
-                    case 3:  return "rd";
-                    default: return "th";
-                }
+            function getDaySuffix(d) {
+                if (d > 3 && d < 21) return 'th';
+                switch (d % 10) { case 1: return "st"; case 2: return "nd"; case 3: return "rd"; default: return "th"; }
             }
-
             return `${weekday} ${day}${getDaySuffix(day)} ${month} ${year}`;
         }
 
-        /**
-         * Processes the raw data to build a structured map of players and their fixtures.
-         * A fixture is a unique combination of Division, HomeTeam, AwayTeam, and MatchDate.
-         * @param {Array<Array<any>>} jsonData The raw data from the Excel file.
-         * @returns {Object} An object where keys are member IDs and values are arrays of sorted fixture objects.
-         */
         function processPlayerFixtures(jsonData) {
             const headerRow = jsonData[0] || [];
             const headerMap = {};
             headerRow.forEach((header, index) => { headerMap[header] = index; });
 
             const playerFixturesTemp = {};
-
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
                 const division = row[headerMap["Division"]];
                 const homeTeam = row[headerMap["HomeTeamName"]];
                 const awayTeam = row[headerMap["AwayTeamName"]];
-
                 let matchDateNum = row[headerMap["MatchDate"]];
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
                     ? new Date(Date.UTC(1899, 11, 30 + matchDateNum))
                     : new Date(matchDateNum);
-
                 if (isNaN(matchDate.getTime()) || !division || !homeTeam || !awayTeam) continue;
-
                 const fixtureKey = `${matchDate.toISOString().split('T')[0]}|${division}|${homeTeam}|${awayTeam}`;
-
                 const playerSlots = [
                     { team: homeTeam, id: row[headerMap["HomeTeamPlayer1_Memberid"]] },
                     { team: homeTeam, id: row[headerMap["HomeTeamPlayer2_Memberid"]] },
                     { team: awayTeam, id: row[headerMap["AwayTeamPlayer1_Memberid"]] },
                     { team: awayTeam, id: row[headerMap["AwayTeamPlayer2_Memberid"]] }
                 ];
-
                 playerSlots.forEach(slot => {
                     if (slot.id != null && slot.id !== '') {
-                        if (!playerFixturesTemp[slot.id]) {
-                            playerFixturesTemp[slot.id] = {};
-                        }
+                        if (!playerFixturesTemp[slot.id]) playerFixturesTemp[slot.id] = {};
                         playerFixturesTemp[slot.id][fixtureKey] = { date: matchDate, team: slot.team };
                     }
                 });
             }
-
             const playerFixturesFinal = {};
             for (const memberId in playerFixturesTemp) {
                 const fixtures = Object.values(playerFixturesTemp[memberId]);
                 fixtures.sort((a, b) => a.date - b.date);
                 playerFixturesFinal[memberId] = fixtures;
             }
-
             return playerFixturesFinal;
         }
 
-        function isPlayerProblematic(memberId, playerFixtures) {
+        function isPlayerProblematic(memberId, playerFixtures, nominationsMap, defaultNominationDetails) {
             const fixtures = playerFixtures[memberId] || [];
-            if (fixtures.length <= 1) return false;
+            if (!fixtures.length) return false;
 
-            for (let i = 1; i < fixtures.length; i++) {
-                const prevRank = getTeamRank(fixtures[i - 1].team);
+            // --- FIXED LOGIC ---
+            const nominatedTeam = nominationsMap[memberId];
+            const defaultNom = defaultNominationDetails[memberId];
+
+            // Prioritize explicit nomination rank if it's valid (not Infinity).
+            let nominationRank = getTeamRank(nominatedTeam);
+            if (nominationRank === Infinity) {
+                // Fall back to default nomination rank if explicit one is unrankable.
+                nominationRank = defaultNom ? getTeamRank(defaultNom.team) : Infinity;
+            }
+            // --- END OF FIX ---
+
+            if (nominationRank === Infinity) return false;
+
+            for (let i = 0; i < fixtures.length; i++) {
                 const currentRank = getTeamRank(fixtures[i].team);
-
-                if (currentRank > prevRank) {
-                    let betterTeamCount = 0;
-                    for (let j = 0; j < i; j++) {
-                        if (getTeamRank(fixtures[j].team) < currentRank) {
-                            betterTeamCount++;
+                if (currentRank > nominationRank) return true;
+                if (i > 0) {
+                    const prevRank = getTeamRank(fixtures[i - 1].team);
+                    if (currentRank > prevRank) {
+                        let betterTeamCount = 0;
+                        for (let j = 0; j < i; j++) {
+                            if (getTeamRank(fixtures[j].team) < currentRank) betterTeamCount++;
                         }
-                    }
-                    if (betterTeamCount >= 3) {
-                        return true;
+                        if (betterTeamCount >= 3) return true;
                     }
                 }
             }
             return false;
         }
 
-        function createPlayerSummaryTables(playerFixtures) {
+        function createPlayerSummaryTables(playerFixtures, nominationsMap) {
             const memberIds = Object.keys(playerFixtures).sort((a, b) => a - b);
+            if (memberIds.length === 0) return '<h2 class="text-2xl font-semibold text-gray-700 mb-4">No Player Fixture Data Found</h2>';
 
-            if (memberIds.length === 0) {
-                return '<h2 class="text-2xl font-semibold text-gray-700 mb-4">No Player Fixture Data Found</h2>';
-            }
+            const explicitlyNominatedTeams = new Set(Object.values(nominationsMap));
+            const teamEarliestDates = {};
+            Object.values(playerFixtures).flat().forEach(fixture => {
+                const team = fixture.team;
+                if (!explicitlyNominatedTeams.has(team)) {
+                    if (!teamEarliestDates[team] || fixture.date < teamEarliestDates[team]) {
+                        teamEarliestDates[team] = fixture.date;
+                    }
+                }
+            });
+            const defaultNominationDetails = {};
+            Object.keys(teamEarliestDates).forEach(team => {
+                const earliestDate = teamEarliestDates[team];
+                Object.entries(playerFixtures).forEach(([memberId, fixtures]) => {
+                    if (!nominationsMap[memberId]) {
+                        const firstMatchForTeam = fixtures.find(f => f.team === team && f.date.getTime() === earliestDate.getTime());
+                        if (firstMatchForTeam && !defaultNominationDetails[memberId]) {
+                            defaultNominationDetails[memberId] = { team: firstMatchForTeam.team, date: firstMatchForTeam.date };
+                        }
+                    }
+                });
+            });
 
             const playedDownIds = [], playedUpOnlyIds = [], loyalIds = [];
-
             memberIds.forEach(id => {
                 const fixtures = playerFixtures[id];
-                if (fixtures.length <= 1) {
+                if (fixtures.length <= 1 || fixtures.every(f => f.team === fixtures[0].team)) {
                     loyalIds.push(id);
                     return;
                 }
-
-                if (fixtures.every(f => f.team === fixtures[0].team)) {
-                    loyalIds.push(id);
-                    return;
-                }
-
-                if (fixtures.some((f, i) => i > 0 && getTeamRank(f.team) > getTeamRank(fixtures[i-1].team))) {
+                if (fixtures.some((f, i) => i > 0 && getTeamRank(f.team) > getTeamRank(fixtures[i - 1].team))) {
                     playedDownIds.push(id);
                 } else {
                     playedUpOnlyIds.push(id);
@@ -292,73 +369,89 @@
             });
 
             playedDownIds.sort((a, b) => {
-                const isAProblematic = isPlayerProblematic(a, playerFixtures);
-                const isBProblematic = isPlayerProblematic(b, playerFixtures);
+                const isAProblematic = isPlayerProblematic(a, playerFixtures, nominationsMap, defaultNominationDetails);
+                const isBProblematic = isPlayerProblematic(b, playerFixtures, nominationsMap, defaultNominationDetails);
                 if (isAProblematic && !isBProblematic) return -1;
                 if (!isAProblematic && isBProblematic) return 1;
                 return a - b;
             });
 
-            let maxFixtures = 0;
-            memberIds.forEach(id => {
-                if (playerFixtures[id].length > maxFixtures) {
-                    maxFixtures = playerFixtures[id].length;
-                }
-            });
+            let maxFixtures = Math.max(0, ...memberIds.map(id => playerFixtures[id].length));
 
             const buildTableHtml = (title, idsToRender, isGrayedOut, checkProblem) => {
                 if (idsToRender.length === 0) return '';
 
-                let table = `
-                    <div class="mb-8">
-                        <h2 class="text-2xl font-semibold text-gray-700 mb-4">${title} (${idsToRender.length})</h2>
-                        <table class="min-w-full divide-y divide-gray-200 border border-gray-300">
-                            <thead class="bg-gray-50"><tr>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member ID</th>`;
+                let tableHtml = `<div class="mb-8"><h2 class="text-2xl font-semibold text-gray-700 my-4 px-4">${title} (${idsToRender.length})</h2><div class="overflow-auto border border-gray-200 rounded-lg" style="max-height: 70vh;"><table class="min-w-full divide-y divide-gray-200">`;
+
+                tableHtml += `<thead class="bg-gray-50"><tr>
+                                <th scope="col" class="sticky top-0 left-0 z-30 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Member ID</th>
+                                <th scope="col" class="sticky top-0 z-20 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Nominated Team</th>`;
                 for (let i = 1; i <= maxFixtures; i++) {
-                    table += `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fixture ${i}</th>`;
+                    tableHtml += `<th scope="col" class="sticky top-0 z-20 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Fixture ${i}</th>`;
                 }
-                table += `</tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+                tableHtml += `</tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
 
                 idsToRender.forEach(id => {
                     const fixtures = playerFixtures[id];
-                    const rowClass = isGrayedOut ? 'class="bg-gray-100 text-gray-500"' : '';
-                    const isProblemPlayer = checkProblem && isPlayerProblematic(id, playerFixtures);
+                    const rowBgClass = isGrayedOut ? 'bg-gray-100' : 'bg-white';
+                    const isProblemPlayer = checkProblem && isPlayerProblematic(id, playerFixtures, nominationsMap, defaultNominationDetails);
+                    const hasNomination = nominationsMap[id] != null;
+                    const nominatedTeam = nominationsMap[id] || '';
+                    const defaultNom = defaultNominationDetails[id];
 
-                    table += `<tr ${rowClass}>`;
-                    const idCellClass = isProblemPlayer ? "bg-red-100 text-red-700 font-bold" : (isGrayedOut ? '' : 'text-gray-900');
-                    table += `<td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${idCellClass}">${id}</td>`;
+                    // --- FIXED LOGIC ---
+                    let nominationRank = getTeamRank(nominatedTeam);
+                    if (nominationRank === Infinity) {
+                        nominationRank = defaultNom ? getTeamRank(defaultNom.team) : Infinity;
+                    }
+
+                    tableHtml += `<tr>`;
+                    const idBgClass = isProblemPlayer ? "bg-red-100" : rowBgClass;
+                    const idTextClass = isProblemPlayer ? "text-red-700 font-bold" : (isGrayedOut ? "text-gray-500" : "text-gray-900");
+                    tableHtml += `<td class="sticky left-0 z-10 px-6 py-4 whitespace-nowrap text-sm font-medium ${idBgClass} ${idTextClass}">${id}</td>`;
+
+                    let nominatedTeamCellClass = `px-6 py-4 whitespace-nowrap text-sm ${rowBgClass}`;
+                    if (hasNomination) {
+                        nominatedTeamCellClass += " bg-blue-100 font-medium";
+                    }
+                    tableHtml += `<td class="${nominatedTeamCellClass}">${nominatedTeam}</td>`;
 
                     for (let i = 0; i < maxFixtures; i++) {
-                        let cellClass = "px-6 py-4 whitespace-nowrap text-sm";
+                        let cellClass = `px-6 py-4 whitespace-nowrap text-sm ${rowBgClass}`;
                         let cellContent = '';
-
                         if (fixtures[i]) {
                             cellContent = `<div>${fixtures[i].team}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}</div>`;
-                             if (checkProblem && i > 0 && fixtures[i-1]) {
-                                 const prevRank = getTeamRank(fixtures[i-1].team);
-                                 const currentRank = getTeamRank(fixtures[i].team);
 
-                                 if (currentRank > prevRank) {
-                                     let betterTeamCount = 0;
-                                     for (let j = 0; j < i; j++) {
-                                         if (getTeamRank(fixtures[j].team) < currentRank) {
-                                             betterTeamCount++;
-                                         }
-                                     }
-                                     if (betterTeamCount >= 3) {
-                                         cellClass += " bg-red-100 text-red-700 font-bold";
-                                     }
-                                 }
+                            if (checkProblem) {
+                                let isProblemCell = false;
+                                const currentRank = getTeamRank(fixtures[i].team);
+                                if (nominationRank !== Infinity && currentRank > nominationRank) {
+                                    isProblemCell = true;
+                                }
+                                if (!isProblemCell && i > 0 && fixtures[i-1]) {
+                                    const prevRank = getTeamRank(fixtures[i-1].team);
+                                    if (currentRank > prevRank) {
+                                        let betterTeamCount = 0;
+                                        for (let j = 0; j < i; j++) {
+                                            if (getTeamRank(fixtures[j].team) < currentRank) betterTeamCount++;
+                                        }
+                                        if(betterTeamCount >= 3) isProblemCell = true;
+                                    }
+                                }
+                                if (isProblemCell) cellClass += " bg-red-100 text-red-700 font-bold";
+                            }
+
+                            if (defaultNom && fixtures[i].team === defaultNom.team && fixtures[i].date.getTime() === defaultNom.date.getTime() && !cellClass.includes('bg-red-100')) {
+                                cellClass += " bg-blue-100 font-medium";
                             }
                         }
-                        table += `<td class="${cellClass}">${cellContent}</td>`;
+                        tableHtml += `<td class="${cellClass}">${cellContent}</td>`;
                     }
-                    table += '</tr>';
+                    tableHtml += '</tr>';
                 });
 
-                table += `</tbody></table></div>`;
-                return table;
+                tableHtml += `</tbody></table></div></div>`;
+                return tableHtml;
             };
 
             const table1 = buildTableHtml("Players who played down", playedDownIds, false, true);
@@ -366,33 +459,6 @@
             const table3 = buildTableHtml("Players who only played for one team", loyalIds, true, false);
 
             return table1 + table2 + table3;
-        }
-
-        function jsonToHtmlTable(jsonArray) {
-            if (!jsonArray || jsonArray.length === 0) {
-                return '<p class="text-center text-gray-500">The selected file is empty or could not be read.</p>';
-            }
-
-            let table = '<table class="min-w-full divide-y divide-gray-200 border border-gray-300">';
-            const headerRow = jsonArray[0] || [];
-            table += '<thead class="bg-gray-50"><tr>';
-            headerRow.forEach(cell => {
-                table += `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${cell}</th>`;
-            });
-            table += '</tr></thead>';
-
-            table += '<tbody class="bg-white divide-y divide-gray-200">';
-            const bodyRows = jsonArray.slice(1);
-            bodyRows.forEach(row => {
-                table += '<tr>';
-                for (let i = 0; i < headerRow.length; i++) {
-                    const cell = row[i];
-                    table += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${cell != null ? cell : ''}</td>`;
-                }
-                table += '</tr>';
-            });
-            table += '</tbody></table>';
-            return table;
         }
     </script>
 

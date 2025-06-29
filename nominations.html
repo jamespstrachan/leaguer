@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LTA County Leagues Nominations Checker</title>
+    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx) library for reading Excel files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         /* A little extra style for the file input button */
@@ -42,7 +44,9 @@
             </p>
         </div>
 
+        <!-- File Input Form -->
         <div class="flex items-center justify-center gap-8">
+            <!-- Matches File Input -->
             <div class="flex items-center gap-2">
                 <label for="matches-file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
                     <span>Choose Matches File</span>
@@ -52,6 +56,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
             </div>
+            <!-- Nominations File Input -->
             <div class="flex items-center gap-2">
                 <label for="nominations-file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
                     <span>Choose Nominations File</span>
@@ -61,14 +66,22 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
             </div>
+            <!-- Skip Nominations Button -->
+             <div class="flex items-center gap-2">
+                 <button id="skip-nominations-button" class="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300">
+                    Skip Nominations File
+                </button>
+            </div>
         </div>
 
+        <!-- Reuse Cached Files Button -->
         <div class="text-center mt-4">
              <button id="reuse-files-button" class="text-sm text-blue-600 hover:underline hidden">
                 Reuse most recently uploaded files
             </button>
         </div>
 
+        <!-- Main Loading Indicator -->
         <div id="main-loader" class="flex items-center justify-center mt-6 hidden">
              <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -77,8 +90,9 @@
             <span class="text-gray-700 font-semibold">Loading...</span>
         </div>
 
+        <!-- Div where the resulting HTML table will be displayed -->
         <div id="output" class="mt-8">
-             <p class="text-center text-gray-500">Please select both a matches file and a nominations file.</p>
+             <p class="text-center text-gray-500">Please select both a matches file and a nominations file, or skip the nominations file.</p>
         </div>
 
     </div>
@@ -87,6 +101,7 @@
         // --- DOM Element References ---
         const matchesFileUpload = document.getElementById('matches-file-upload');
         const nominationsFileUpload = document.getElementById('nominations-file-upload');
+        const skipNominationsButton = document.getElementById('skip-nominations-button');
         const matchesTick = document.getElementById('matches-tick');
         const nominationsTick = document.getElementById('nominations-tick');
         const mainLoader = document.getElementById('main-loader');
@@ -108,6 +123,14 @@
             nominationsFile = e.target.files[0];
             nominationsTick.classList.toggle('hidden', !nominationsFile);
             if (matchesFile && nominationsFile) tryToProcessFiles();
+        });
+
+        skipNominationsButton.addEventListener('click', () => {
+             if (!matchesFile) {
+                alert("Please choose a Matches File first.");
+                return;
+            }
+            tryToProcessFiles(true); // Pass true to indicate skipping nominations
         });
 
         reuseFilesButton.addEventListener('click', () => {
@@ -154,7 +177,7 @@
         /**
          * Core processing function.
          * @param {string} matchesDataURL The base64 data URL for the matches file.
-         * @param {string} nominationsDataURL The base64 data URL for the nominations file.
+         * @param {string} nominationsDataURL The base64 data URL for the nominations file (can be empty).
          */
         function processAllData(matchesDataURL, nominationsDataURL) {
             setMainLoading(true);
@@ -167,13 +190,17 @@
                 const matchesJsonData = XLSX.utils.sheet_to_json(matchesWorksheet, { header: 1 });
                 const playerFixtures = processPlayerFixtures(matchesJsonData);
 
-                // Decode base64 and process nominations data
-                const nominationsData = atob(nominationsDataURL.substring(nominationsDataURL.indexOf(',') + 1));
-                const nominationsWorkbook = XLSX.read(nominationsData, { type: 'binary' });
-                const nominationsSheetName = nominationsWorkbook.SheetNames[0];
-                const nominationsWorksheet = nominationsWorkbook.Sheets[nominationsSheetName];
-                const nominationsJsonData = XLSX.utils.sheet_to_json(nominationsWorksheet, { header: 1 });
-                const nominationsMap = createNominationsMap(nominationsJsonData);
+                // Decode base64 and process nominations data (if it exists)
+                const nominationsDataString = nominationsDataURL.substring(nominationsDataURL.indexOf(',') + 1);
+                let nominationsMap = {};
+                if (nominationsDataString) {
+                    const nominationsData = atob(nominationsDataString);
+                    const nominationsWorkbook = XLSX.read(nominationsData, { type: 'binary' });
+                    const nominationsSheetName = nominationsWorkbook.SheetNames[0];
+                    const nominationsWorksheet = nominationsWorkbook.Sheets[nominationsSheetName];
+                    const nominationsJsonData = XLSX.utils.sheet_to_json(nominationsWorksheet, { header: 1 });
+                    nominationsMap = createNominationsMap(nominationsJsonData);
+                }
 
                 // Generate and display tables
                 const playerSummaryTables = createPlayerSummaryTables(playerFixtures, nominationsMap);
@@ -189,23 +216,30 @@
 
         /**
          * Reads the selected files, caches them, and starts processing.
+         * @param {boolean} skipNominations - True if the user clicked the skip button.
          */
-        function tryToProcessFiles() {
+        function tryToProcessFiles(skipNominations = false) {
             setMainLoading(true);
-            Promise.all([readFileAsDataURL(matchesFile), readFileAsDataURL(nominationsFile)])
-                .then(([matchesDataURL, nominationsDataURL]) => {
-                    // Cache the file data and names
-                    localStorage.setItem('lastMatchesFile', matchesDataURL);
-                    localStorage.setItem('lastNominationsFile', nominationsDataURL);
-                    localStorage.setItem('lastMatchesFileName', matchesFile.name);
-                    localStorage.setItem('lastNominationsFileName', nominationsFile.name);
 
-                    // Update and show the reuse button
-                    reuseFilesButton.textContent = `Reuse most recently uploaded files (${matchesFile.name} and ${nominationsFile.name})`;
+            const promises = [readFileAsDataURL(matchesFile)];
+            if (!skipNominations) {
+                promises.push(readFileAsDataURL(nominationsFile));
+            }
+
+            Promise.all(promises)
+                .then(([matchesDataURL, nominationsDataURL]) => {
+                    const nomsFile = skipNominations ? {name: '[SKIPPED]'} : nominationsFile;
+                    const nomsData = nominationsDataURL || 'data:,'; // Provide empty data URL if skipped
+
+                    localStorage.setItem('lastMatchesFile', matchesDataURL);
+                    localStorage.setItem('lastNominationsFile', nomsData);
+                    localStorage.setItem('lastMatchesFileName', matchesFile.name);
+                    localStorage.setItem('lastNominationsFileName', nomsFile.name);
+
+                    reuseFilesButton.textContent = `Reuse most recently uploaded files (${matchesFile.name} and ${nomsFile.name})`;
                     reuseFilesButton.classList.remove('hidden');
 
-                    // Process the data
-                    processAllData(matchesDataURL, nominationsDataURL);
+                    processAllData(matchesDataURL, nomsData);
                 })
                 .catch(err => {
                     console.error("Error reading files: ", err);
@@ -217,19 +251,32 @@
         function createNominationsMap(jsonData) {
             const map = {};
             if (!jsonData || jsonData.length < 2) return map;
+
             const headerRow = jsonData[0];
-            const memberIdIndex = headerRow.indexOf("Member ID");
-            const nominatedTeamIndex = headerRow.indexOf("Nominated Team");
-            if (memberIdIndex === -1 || nominatedTeamIndex === -1) {
-                console.warn("'Member ID' or 'Nominated Team' column not found in nominations file.");
+            const teamIndex = headerRow.indexOf("Team");
+            const nom1Index = headerRow.indexOf("Nomination 1");
+            const nom2Index = headerRow.indexOf("Nomination 2");
+            const nom3Index = headerRow.indexOf("Nomination 3");
+            const nom4Index = headerRow.indexOf("Nomination 4");
+
+            if ([teamIndex, nom1Index, nom2Index, nom3Index, nom4Index].some(index => index === -1)) {
+                console.warn("One or more required columns ('Team', 'Nomination 1-4') not found in nominations file.");
                 return map;
             }
+
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
-                const memberId = row[memberIdIndex];
-                const nominatedTeam = row[nominatedTeamIndex];
-                if (memberId != null && nominatedTeam != null) {
-                    map[memberId] = nominatedTeam;
+                const teamName = row[teamIndex];
+                const nom1 = row[nom1Index];
+                const nom2 = row[nom2Index];
+                const nom3 = row[nom3Index];
+                const nom4 = row[nom4Index];
+
+                if (teamName && nom1 && nom2 && nom3 && nom4) {
+                    map[nom1] = teamName;
+                    map[nom2] = teamName;
+                    map[nom3] = teamName;
+                    map[nom4] = teamName;
                 }
             }
             return map;
@@ -292,39 +339,38 @@
             return playerFixturesFinal;
         }
 
-        function isPlayerProblematic(memberId, playerFixtures, nominationsMap, defaultNominationDetails) {
+        function getPlayerProblemStatus(memberId, playerFixtures, nominationsMap, defaultNominationDetails) {
             const fixtures = playerFixtures[memberId] || [];
-            if (!fixtures.length) return false;
+            const result = { isOverallProblematic: false, problematicFixtures: Array(fixtures.length).fill(false) };
+            if (!fixtures.length) return result;
 
-            // --- FIXED LOGIC ---
             const nominatedTeam = nominationsMap[memberId];
             const defaultNom = defaultNominationDetails[memberId];
 
-            // Prioritize explicit nomination rank if it's valid (not Infinity).
             let nominationRank = getTeamRank(nominatedTeam);
             if (nominationRank === Infinity) {
-                // Fall back to default nomination rank if explicit one is unrankable.
                 nominationRank = defaultNom ? getTeamRank(defaultNom.team) : Infinity;
             }
-            // --- END OF FIX ---
 
-            if (nominationRank === Infinity) return false;
+            if (nominationRank === Infinity) return result;
 
+            let playedUpCount = 0;
             for (let i = 0; i < fixtures.length; i++) {
                 const currentRank = getTeamRank(fixtures[i].team);
-                if (currentRank > nominationRank) return true;
-                if (i > 0) {
-                    const prevRank = getTeamRank(fixtures[i - 1].team);
-                    if (currentRank > prevRank) {
-                        let betterTeamCount = 0;
-                        for (let j = 0; j < i; j++) {
-                            if (getTeamRank(fixtures[j].team) < currentRank) betterTeamCount++;
-                        }
-                        if (betterTeamCount >= 3) return true;
-                    }
+                let isThisFixtureProblematic = false;
+
+                if (currentRank > nominationRank) isThisFixtureProblematic = true;
+                if (playedUpCount >= 3 && currentRank >= nominationRank) isThisFixtureProblematic = true;
+
+                if (isThisFixtureProblematic) {
+                    result.problematicFixtures[i] = true;
+                    result.isOverallProblematic = true;
                 }
+
+                if (currentRank < nominationRank) playedUpCount++;
             }
-            return false;
+
+            return result;
         }
 
         function createPlayerSummaryTables(playerFixtures, nominationsMap) {
@@ -361,7 +407,9 @@
                     loyalIds.push(id);
                     return;
                 }
-                if (fixtures.some((f, i) => i > 0 && getTeamRank(f.team) > getTeamRank(fixtures[i - 1].team))) {
+                if (getPlayerProblemStatus(id, playerFixtures, nominationsMap, defaultNominationDetails).isOverallProblematic) {
+                     playedDownIds.push(id);
+                } else if (fixtures.some((f, i) => i > 0 && getTeamRank(f.team) > getTeamRank(fixtures[i - 1].team))) {
                     playedDownIds.push(id);
                 } else {
                     playedUpOnlyIds.push(id);
@@ -369,8 +417,8 @@
             });
 
             playedDownIds.sort((a, b) => {
-                const isAProblematic = isPlayerProblematic(a, playerFixtures, nominationsMap, defaultNominationDetails);
-                const isBProblematic = isPlayerProblematic(b, playerFixtures, nominationsMap, defaultNominationDetails);
+                const isAProblematic = getPlayerProblemStatus(a, playerFixtures, nominationsMap, defaultNominationDetails).isOverallProblematic;
+                const isBProblematic = getPlayerProblemStatus(b, playerFixtures, nominationsMap, defaultNominationDetails).isOverallProblematic;
                 if (isAProblematic && !isBProblematic) return -1;
                 if (!isAProblematic && isBProblematic) return 1;
                 return a - b;
@@ -394,20 +442,16 @@
                 idsToRender.forEach(id => {
                     const fixtures = playerFixtures[id];
                     const rowBgClass = isGrayedOut ? 'bg-gray-100' : 'bg-white';
-                    const isProblemPlayer = checkProblem && isPlayerProblematic(id, playerFixtures, nominationsMap, defaultNominationDetails);
+                    const problemStatus = checkProblem
+                        ? getPlayerProblemStatus(id, playerFixtures, nominationsMap, defaultNominationDetails)
+                        : { isOverallProblematic: false, problematicFixtures: [] };
                     const hasNomination = nominationsMap[id] != null;
                     const nominatedTeam = nominationsMap[id] || '';
                     const defaultNom = defaultNominationDetails[id];
 
-                    // --- FIXED LOGIC ---
-                    let nominationRank = getTeamRank(nominatedTeam);
-                    if (nominationRank === Infinity) {
-                        nominationRank = defaultNom ? getTeamRank(defaultNom.team) : Infinity;
-                    }
-
                     tableHtml += `<tr>`;
-                    const idBgClass = isProblemPlayer ? "bg-red-100" : rowBgClass;
-                    const idTextClass = isProblemPlayer ? "text-red-700 font-bold" : (isGrayedOut ? "text-gray-500" : "text-gray-900");
+                    const idBgClass = problemStatus.isOverallProblematic ? "bg-red-100" : rowBgClass;
+                    const idTextClass = problemStatus.isOverallProblematic ? "text-red-700 font-bold" : (isGrayedOut ? "text-gray-500" : "text-gray-900");
                     tableHtml += `<td class="sticky left-0 z-10 px-6 py-4 whitespace-nowrap text-sm font-medium ${idBgClass} ${idTextClass}">${id}</td>`;
 
                     let nominatedTeamCellClass = `px-6 py-4 whitespace-nowrap text-sm ${rowBgClass}`;
@@ -421,26 +465,9 @@
                         let cellContent = '';
                         if (fixtures[i]) {
                             cellContent = `<div>${fixtures[i].team}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}</div>`;
-
-                            if (checkProblem) {
-                                let isProblemCell = false;
-                                const currentRank = getTeamRank(fixtures[i].team);
-                                if (nominationRank !== Infinity && currentRank > nominationRank) {
-                                    isProblemCell = true;
-                                }
-                                if (!isProblemCell && i > 0 && fixtures[i-1]) {
-                                    const prevRank = getTeamRank(fixtures[i-1].team);
-                                    if (currentRank > prevRank) {
-                                        let betterTeamCount = 0;
-                                        for (let j = 0; j < i; j++) {
-                                            if (getTeamRank(fixtures[j].team) < currentRank) betterTeamCount++;
-                                        }
-                                        if(betterTeamCount >= 3) isProblemCell = true;
-                                    }
-                                }
-                                if (isProblemCell) cellClass += " bg-red-100 text-red-700 font-bold";
+                            if (checkProblem && problemStatus.problematicFixtures[i]) {
+                                cellClass += " bg-red-100 text-red-700 font-bold";
                             }
-
                             if (defaultNom && fixtures[i].team === defaultNom.team && fixtures[i].date.getTime() === defaultNom.date.getTime() && !cellClass.includes('bg-red-100')) {
                                 cellClass += " bg-blue-100 font-medium";
                             }

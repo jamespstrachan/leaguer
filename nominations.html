@@ -39,8 +39,8 @@
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800">LTA County Leagues Nominations Checker</h1>
             <p class="text-gray-600 mt-2">
-                Choose an output file from Tournament Software (.xlsx) to examine its contents below.
-                This data is not stored or uploaded to a server.
+                Choose an output file from Tournament Software (.xlsx) to examine its contents below. <br>
+                This data remains only in this browser and is not uploaded to a server.
             </p>
         </div>
 
@@ -137,7 +137,9 @@
             const lastMatchesData = localStorage.getItem('lastMatchesFile');
             const lastNominationsData = localStorage.getItem('lastNominationsFile');
             if (lastMatchesData && lastNominationsData) {
-                processAllData(lastMatchesData, lastNominationsData);
+                setMainLoading(true); // Show loader when reusing files
+                // Use a timeout to allow the UI to update before heavy processing
+                setTimeout(() => processAllData(lastMatchesData, lastNominationsData), 50);
             }
         });
 
@@ -180,7 +182,6 @@
          * @param {string} nominationsDataURL The base64 data URL for the nominations file (can be empty).
          */
         function processAllData(matchesDataURL, nominationsDataURL) {
-            setMainLoading(true);
             try {
                 // Decode base64 and process matches data
                 const matchesData = atob(matchesDataURL.substring(matchesDataURL.indexOf(',') + 1));
@@ -206,6 +207,7 @@
                 // Generate and display tables
                 const playerSummaryTables = createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap);
                 outputDiv.innerHTML = playerSummaryTables;
+                reuseFilesButton.classList.add('hidden'); // Hide reuse button after successful generation
 
             } catch (err) {
                 console.error("Error processing files: ", err);
@@ -237,10 +239,8 @@
                     localStorage.setItem('lastMatchesFileName', matchesFile.name);
                     localStorage.setItem('lastNominationsFileName', nomsFile.name);
 
-                    reuseFilesButton.textContent = `Reuse most recently uploaded files (${matchesFile.name} and ${nomsFile.name})`;
-                    reuseFilesButton.classList.remove('hidden');
-
-                    processAllData(matchesDataURL, nomsData);
+                    // Use a timeout to allow the UI to update before heavy processing
+                    setTimeout(() => processAllData(matchesDataURL, nomsData), 50);
                 })
                 .catch(err => {
                     console.error("Error reading files: ", err);
@@ -690,7 +690,7 @@
                         <div class="py-1"><svg class="h-6 w-6 text-blue-500 mr-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
                         <div>
                             <p class="font-bold">Rule Information</p>
-                            <p class="text-sm">Detected a <strong>${isMixedLeague ? 'Mixed League' : "Men's/Ladies' League"}</strong>. A player is flagged if they play for a lower-ranked team than their nomination (if they have one) or for any match played after they've played <strong>${playedUpThreshold}</strong> or more times for higher ranked teams. Teams must field 2 nominated players in their 1st fixture and all 4 nominated players by their ${isMixedLeague ? '2nd' : '3rd'} fixture.</p>
+                            <p class="text-sm">Detected a <strong>${isMixedLeague ? 'Mixed League' : "Men's/Ladies' League"}</strong>. A player is flagged if they play for a lower-ranked team than their nomination (if they have one) or for any match played after they've played <strong>${playedUpThreshold}</strong> or more times for higher ranked teams. Teams must field 2 nominated players in their 1st fixture and all 4 nominated players by their <strong>${isMixedLeague ? '2nd' : '3rd'}</strong> fixture.</p>
                         </div>
                     </div>
                 </div>

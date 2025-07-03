@@ -116,7 +116,7 @@
         matchesFileUpload.addEventListener('change', (e) => {
             matchesFile = e.target.files[0];
             matchesTick.classList.toggle('hidden', !matchesFile);
-            if (matchesFile && nominationsFile) tryToProcessFiles();
+            if (matchesFile && (nominationsFile || e.target.id === 'skip-nominations-button')) tryToProcessFiles();
         });
 
         nominationsFileUpload.addEventListener('change', (e) => {
@@ -189,6 +189,7 @@
                 const matchesWorksheet = matchesWorkbook.Sheets[matchesSheetName];
                 const matchesJsonData = XLSX.utils.sheet_to_json(matchesWorksheet, { header: 1 });
                 const playerFixtures = processPlayerFixtures(matchesJsonData);
+                const teamFixtureCountMap = createTeamFixtureCountMap(playerFixtures);
 
                 // Decode base64 and process nominations data (if it exists)
                 const nominationsDataString = nominationsDataURL.substring(nominationsDataURL.indexOf(',') + 1);
@@ -203,7 +204,7 @@
                 }
 
                 // Generate and display tables
-                const playerSummaryTables = createPlayerSummaryTables(playerFixtures, nominationsMap);
+                const playerSummaryTables = createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap);
                 outputDiv.innerHTML = playerSummaryTables;
 
             } catch (err) {
@@ -288,16 +289,20 @@
             return match ? parseInt(match[0], 10) : Infinity;
         }
 
+        function getOrdinalSuffix(i) {
+            const j = i % 10, k = i % 100;
+            if (j == 1 && k != 11) return i + "st";
+            if (j == 2 && k != 12) return i + "nd";
+            if (j == 3 && k != 13) return i + "rd";
+            return i + "th";
+        }
+
         function formatFixtureDate(date) {
             const day = date.getUTCDate();
             const weekday = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
             const month = date.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
             const year = date.getUTCFullYear();
-            function getDaySuffix(d) {
-                if (d > 3 && d < 21) return 'th';
-                switch (d % 10) { case 1: return "st"; case 2: return "nd"; case 3: return "rd"; default: return "th"; }
-            }
-            return `${weekday} ${day}${getDaySuffix(day)} ${month} ${year}`;
+            return `${weekday} ${getOrdinalSuffix(day)} ${month} ${year}`;
         }
 
         function processPlayerFixtures(jsonData) {
@@ -326,7 +331,7 @@
                 playerSlots.forEach(slot => {
                     if (slot.id != null && slot.id !== '') {
                         if (!playerFixturesTemp[slot.id]) playerFixturesTemp[slot.id] = {};
-                        playerFixturesTemp[slot.id][fixtureKey] = { date: matchDate, team: slot.team };
+                        playerFixturesTemp[slot.id][fixtureKey] = { date: matchDate, team: slot.team, key: fixtureKey };
                     }
                 });
             }
@@ -339,7 +344,26 @@
             return playerFixturesFinal;
         }
 
-        function getPlayerProblemStatus(memberId, playerFixtures, nominationsMap, defaultNominationDetails) {
+        function createTeamFixtureCountMap(playerFixtures) {
+            const teamFixtures = {};
+            Object.values(playerFixtures).flat().forEach(fixture => {
+                if (!teamFixtures[fixture.team]) {
+                    teamFixtures[fixture.team] = new Set();
+                }
+                teamFixtures[fixture.team].add(fixture.key);
+            });
+
+            const fixtureCountMap = {};
+            for (const team in teamFixtures) {
+                const sortedKeys = Array.from(teamFixtures[team]).sort(); // Sorts by date string
+                sortedKeys.forEach((key, index) => {
+                    fixtureCountMap[key] = index + 1;
+                });
+            }
+            return fixtureCountMap;
+        }
+
+        function getPlayerProblemStatus(memberId, playerFixtures, nominationsMap, defaultNominationDetails, playedUpThreshold) {
             const fixtures = playerFixtures[memberId] || [];
             const result = { isOverallProblematic: false, problematicFixtures: Array(fixtures.length).fill(false) };
             if (!fixtures.length) return result;
@@ -354,28 +378,140 @@
 
             if (nominationRank === Infinity) return result;
 
-            let playedUpCount = 0;
+            const playedUpRanks = [];
+            let maxAllowedRank = Infinity;
+
             for (let i = 0; i < fixtures.length; i++) {
                 const currentRank = getTeamRank(fixtures[i].team);
                 let isThisFixtureProblematic = false;
 
-                if (currentRank > nominationRank) isThisFixtureProblematic = true;
-                if (playedUpCount >= 3 && currentRank >= nominationRank) isThisFixtureProblematic = true;
+                // Rule 1: Always a problem to play for a team with a worse rank than initial nomination.
+                if (currentRank > nominationRank) {
+                    isThisFixtureProblematic = true;
+                }
+
+                // Rule 2 (Refined): If a new standard is set, it's a problem to play worse than it.
+                if (maxAllowedRank !== Infinity && currentRank > maxAllowedRank) {
+                    isThisFixtureProblematic = true;
+                }
 
                 if (isThisFixtureProblematic) {
                     result.problematicFixtures[i] = true;
                     result.isOverallProblematic = true;
                 }
 
-                if (currentRank < nominationRank) playedUpCount++;
+                // Update state for the next iteration: track played-up matches and update maxAllowedRank.
+                if (currentRank < nominationRank) {
+                    playedUpRanks.push(currentRank);
+                    if (playedUpRanks.length >= playedUpThreshold) {
+                         const sortedPlayedUpRanks = [...playedUpRanks].sort((a,b) => a - b);
+                         maxAllowedRank = sortedPlayedUpRanks[playedUpThreshold - 1];
+                    }
+                }
             }
 
             return result;
         }
 
-        function createPlayerSummaryTables(playerFixtures, nominationsMap) {
+        function processTeamQuotaStatus(matchesJsonData, nominationsMap, playedUpThreshold) {
+            const teamStatus = {};
+            const headerRow = matchesJsonData[0] || [];
+            const headerMap = {};
+            headerRow.forEach((h, i) => headerMap[h] = i);
+
+            const teamNominations = {};
+            for (const playerId in nominationsMap) {
+                const teamName = nominationsMap[playerId];
+                if (!teamNominations[teamName]) {
+                    teamNominations[teamName] = new Set();
+                }
+                teamNominations[teamName].add(playerId);
+            }
+
+            const teamFixtures = {};
+             for (let i = 1; i < matchesJsonData.length; i++) {
+                const row = matchesJsonData[i];
+                const homeTeam = row[headerMap["HomeTeamName"]];
+                const awayTeam = row[headerMap["AwayTeamName"]];
+                const division = row[headerMap["Division"]];
+                let matchDateNum = row[headerMap["MatchDate"]];
+                let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
+                    ? new Date(Date.UTC(1899, 11, 30 + matchDateNum))
+                    : new Date(matchDateNum);
+
+                if (isNaN(matchDate.getTime())) continue;
+
+                const fixtureKey = `${matchDate.toISOString().split('T')[0]}|${division}|${homeTeam}|${awayTeam}`;
+                const playersInFixture = [
+                    row[headerMap["HomeTeamPlayer1_Memberid"]],
+                    row[headerMap["HomeTeamPlayer2_Memberid"]],
+                    row[headerMap["AwayTeamPlayer1_Memberid"]],
+                    row[headerMap["AwayTeamPlayer2_Memberid"]]
+                ].filter(id => id != null);
+
+                [homeTeam, awayTeam].forEach(team => {
+                    if (!team) return;
+                    if (!teamFixtures[team]) teamFixtures[team] = {};
+                    if (!teamFixtures[team][fixtureKey]) {
+                         teamFixtures[team][fixtureKey] = {
+                            date: matchDate,
+                            opponent: team === homeTeam ? awayTeam : homeTeam,
+                            players: new Set()
+                        };
+                    }
+                    playersInFixture.forEach(pId => teamFixtures[team][fixtureKey].players.add(pId));
+                });
+            }
+
+            for (const teamName in teamFixtures) {
+                const sortedFixtures = Object.values(teamFixtures[teamName]).sort((a, b) => a.date - b.date);
+                teamStatus[teamName] = {
+                    hasFullNominations: (teamNominations[teamName]?.size || 0) === 4,
+                    fixtures: [],
+                    isProblematicFirstFixture: false,
+                    isProblematicThirdFixture: false,
+                };
+
+                const nominatedPlayersForTeam = teamNominations[teamName] || new Set();
+                const cumulativeNominatedPlayers = new Set();
+
+                sortedFixtures.forEach((fixture, index) => {
+                    const playersInThisFixture = Array.from(fixture.players);
+                    const nominatedPlayersInThisFixture = playersInThisFixture.filter(p => nominatedPlayersForTeam.has(p));
+
+                    nominatedPlayersInThisFixture.forEach(p => cumulativeNominatedPlayers.add(p));
+
+                    teamStatus[teamName].fixtures.push({
+                        opponent: fixture.opponent,
+                        cumulativeNoms: cumulativeNominatedPlayers.size
+                    });
+
+                    if (teamStatus[teamName].hasFullNominations) {
+                        if (index === 0 && nominatedPlayersInThisFixture.length < 2) {
+                            teamStatus[teamName].isProblematicFirstFixture = true;
+                        }
+                        const finalCheckFixtureIndex = (playedUpThreshold === 2 ? 1 : 2);
+                        if (index === finalCheckFixtureIndex && cumulativeNominatedPlayers.size < 4) {
+                             teamStatus[teamName].isProblematicThirdFixture = true;
+                        }
+                    }
+                });
+            }
+            return teamStatus;
+        }
+
+        function createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap) {
             const memberIds = Object.keys(playerFixtures).sort((a, b) => a - b);
             if (memberIds.length === 0) return '<h2 class="text-2xl font-semibold text-gray-700 mb-4">No Player Fixture Data Found</h2>';
+
+            const headerRow = matchesJsonData[0] || [];
+            const leagueTypeIndex = headerRow.indexOf("LeagueType");
+            let isMixedLeague = false;
+            if (leagueTypeIndex !== -1 && matchesJsonData.length > 1) {
+                const leagueType = matchesJsonData[1][leagueTypeIndex] || '';
+                isMixedLeague = leagueType.toLowerCase().includes('mixed');
+            }
+            const playedUpThreshold = isMixedLeague ? 2 : 3;
 
             const explicitlyNominatedTeams = new Set(Object.values(nominationsMap));
             const teamEarliestDates = {};
@@ -407,7 +543,7 @@
                     loyalIds.push(id);
                     return;
                 }
-                if (getPlayerProblemStatus(id, playerFixtures, nominationsMap, defaultNominationDetails).isOverallProblematic) {
+                if (getPlayerProblemStatus(id, playerFixtures, nominationsMap, defaultNominationDetails, playedUpThreshold).isOverallProblematic) {
                      playedDownIds.push(id);
                 } else if (fixtures.some((f, i) => i > 0 && getTeamRank(f.team) > getTeamRank(fixtures[i - 1].team))) {
                     playedDownIds.push(id);
@@ -417,8 +553,8 @@
             });
 
             playedDownIds.sort((a, b) => {
-                const isAProblematic = getPlayerProblemStatus(a, playerFixtures, nominationsMap, defaultNominationDetails).isOverallProblematic;
-                const isBProblematic = getPlayerProblemStatus(b, playerFixtures, nominationsMap, defaultNominationDetails).isOverallProblematic;
+                const isAProblematic = getPlayerProblemStatus(a, playerFixtures, nominationsMap, defaultNominationDetails, playedUpThreshold).isOverallProblematic;
+                const isBProblematic = getPlayerProblemStatus(b, playerFixtures, nominationsMap, defaultNominationDetails, playedUpThreshold).isOverallProblematic;
                 if (isAProblematic && !isBProblematic) return -1;
                 if (!isAProblematic && isBProblematic) return 1;
                 return a - b;
@@ -426,7 +562,7 @@
 
             let maxFixtures = Math.max(0, ...memberIds.map(id => playerFixtures[id].length));
 
-            const buildTableHtml = (title, idsToRender, isGrayedOut, checkProblem) => {
+            const buildPlayerTableHtml = (title, idsToRender, isGrayedOut, checkProblem) => {
                 if (idsToRender.length === 0) return '';
 
                 let tableHtml = `<div class="mb-8"><h2 class="text-2xl font-semibold text-gray-700 my-4 px-4">${title} (${idsToRender.length})</h2><div class="overflow-auto border border-gray-200 rounded-lg" style="max-height: 70vh;"><table class="min-w-full divide-y divide-gray-200">`;
@@ -435,16 +571,18 @@
                                 <th scope="col" class="sticky top-0 left-0 z-30 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Member ID</th>
                                 <th scope="col" class="sticky top-0 z-20 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Nominated Team</th>`;
                 for (let i = 1; i <= maxFixtures; i++) {
-                    tableHtml += `<th scope="col" class="sticky top-0 z-20 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Fixture ${i}</th>`;
+                    tableHtml += `<th scope="col" class="sticky top-0 z-20 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Player's ${getOrdinalSuffix(i)} match</th>`;
                 }
                 tableHtml += `</tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
 
                 idsToRender.forEach(id => {
                     const fixtures = playerFixtures[id];
                     const rowBgClass = isGrayedOut ? 'bg-gray-100' : 'bg-white';
+
                     const problemStatus = checkProblem
-                        ? getPlayerProblemStatus(id, playerFixtures, nominationsMap, defaultNominationDetails)
+                        ? getPlayerProblemStatus(id, playerFixtures, nominationsMap, defaultNominationDetails, playedUpThreshold)
                         : { isOverallProblematic: false, problematicFixtures: [] };
+
                     const hasNomination = nominationsMap[id] != null;
                     const nominatedTeam = nominationsMap[id] || '';
                     const defaultNom = defaultNominationDetails[id];
@@ -464,10 +602,15 @@
                         let cellClass = `px-6 py-4 whitespace-nowrap text-sm ${rowBgClass}`;
                         let cellContent = '';
                         if (fixtures[i]) {
-                            cellContent = `<div>${fixtures[i].team}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}</div>`;
+                            const fixtureKey = fixtures[i].key;
+                            const teamMatchCount = teamFixtureCountMap[fixtureKey];
+                            const matchCountStr = teamMatchCount ? `, team's ${getOrdinalSuffix(teamMatchCount)} Match` : '';
+                            cellContent = `<div>${fixtures[i].team}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}${matchCountStr}</div>`;
+
                             if (checkProblem && problemStatus.problematicFixtures[i]) {
                                 cellClass += " bg-red-100 text-red-700 font-bold";
                             }
+
                             if (defaultNom && fixtures[i].team === defaultNom.team && fixtures[i].date.getTime() === defaultNom.date.getTime() && !cellClass.includes('bg-red-100')) {
                                 cellClass += " bg-blue-100 font-medium";
                             }
@@ -481,11 +624,84 @@
                 return tableHtml;
             };
 
-            const table1 = buildTableHtml("Players who played down", playedDownIds, false, true);
-            const table2 = buildTableHtml("Players who only played up", playedUpOnlyIds, false, false);
-            const table3 = buildTableHtml("Players who only played for one team", loyalIds, true, false);
+            const teamQuotaStatus = processTeamQuotaStatus(matchesJsonData, nominationsMap, playedUpThreshold);
 
-            return table1 + table2 + table3;
+            const buildTeamQuotaTable = () => {
+                const teamNames = Object.keys(teamQuotaStatus).sort((a,b) => {
+                    const statusA = teamQuotaStatus[a];
+                    const statusB = teamQuotaStatus[b];
+                    const isAProblematic = statusA.isProblematicFirstFixture || statusA.isProblematicThirdFixture;
+                    const isBProblematic = statusB.isProblematicFirstFixture || statusB.isProblematicThirdFixture;
+                    if (isAProblematic && !isBProblematic) return -1;
+                    if (!isAProblematic && isBProblematic) return 1;
+                    return a.localeCompare(b);
+                });
+                if (teamNames.length === 0) return '';
+
+                let maxTeamFixtures = Math.max(0, ...teamNames.map(name => teamQuotaStatus[name].fixtures.length));
+
+                let tableHtml = `<div class="mb-8"><h2 class="text-2xl font-semibold text-gray-700 my-4 px-4">Team fixtures and nominations quotas (${teamNames.length})</h2><div class="overflow-auto border border-gray-200 rounded-lg" style="max-height: 70vh;"><table class="min-w-full divide-y divide-gray-200">`;
+
+                tableHtml += `<thead class="bg-gray-50"><tr>
+                                <th scope="col" class="sticky top-0 left-0 z-30 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Team Name</th>
+                                <th scope="col" class="sticky top-0 z-20 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Has Nominations</th>`;
+                for (let i = 1; i <= maxTeamFixtures; i++) {
+                    tableHtml += `<th scope="col" class="sticky top-0 z-20 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Team's ${getOrdinalSuffix(i)} match</th>`;
+                }
+                tableHtml += `</tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+
+                teamNames.forEach(name => {
+                    const status = teamQuotaStatus[name];
+                    const isProblematic = status.isProblematicFirstFixture || status.isProblematicThirdFixture;
+                    const teamNameBg = isProblematic ? 'bg-red-100' : 'bg-white';
+                    const teamNameText = isProblematic ? 'text-red-700 font-bold' : 'text-gray-900';
+
+                    tableHtml += `<tr><td class="sticky left-0 z-10 px-6 py-4 whitespace-nowrap text-sm font-medium ${teamNameBg} ${teamNameText}">${name}</td>`;
+                    tableHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-center">${status.hasFullNominations ? '✓' : ''}</td>`;
+
+                    for(let i = 0; i < maxTeamFixtures; i++) {
+                        let cellClass = `px-6 py-4 whitespace-nowrap text-sm`;
+                        let cellContent = '';
+                        if (status.fixtures[i]) {
+                            const fixture = status.fixtures[i];
+                            cellContent = `<div>vs ${fixture.opponent}</div><div class="text-xs text-gray-500">${fixture.cumulativeNoms} / 4 nominated players played so far</div>`;
+
+                            const finalCheckFixtureIndex = isMixedLeague ? 1 : 2;
+                            if (i === 0 && status.isProblematicFirstFixture) {
+                                cellClass += ' bg-red-100 text-red-700 font-bold';
+                            }
+                            if (i === finalCheckFixtureIndex && status.isProblematicThirdFixture) {
+                                cellClass += ' bg-red-100 text-red-700 font-bold';
+                            }
+                        }
+                        tableHtml += `<td class="${cellClass}">${cellContent}</td>`;
+                    }
+                    tableHtml += `</tr>`;
+                });
+
+                tableHtml += `</tbody></table></div></div>`;
+                return tableHtml;
+            };
+
+
+            const infoBoxHtml = `
+                <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 rounded-r-lg">
+                    <div class="flex">
+                        <div class="py-1"><svg class="h-6 w-6 text-blue-500 mr-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
+                        <div>
+                            <p class="font-bold">Rule Information</p>
+                            <p class="text-sm">Detected a <strong>${isMixedLeague ? 'Mixed League' : "Men's/Ladies' League"}</strong>. A player is flagged if they play for a lower-ranked team than their nomination (if they have one) or for any match played after they've played <strong>${playedUpThreshold}</strong> or more times for higher ranked teams. Teams must field 2 nominated players in their 1st fixture and all 4 nominated players by their ${isMixedLeague ? '2nd' : '3rd'} fixture.</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const table1 = buildPlayerTableHtml("Players who played down", playedDownIds, false, true);
+            const teamQuotaTable = buildTeamQuotaTable();
+            const table2 = buildPlayerTableHtml("Players who only played up", playedUpOnlyIds, false, false);
+            const table3 = buildPlayerTableHtml("Players who only played for one team", loyalIds, true, false);
+
+            return infoBoxHtml + table1 + teamQuotaTable + table2 + table3;
         }
     </script>
 

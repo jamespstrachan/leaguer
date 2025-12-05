@@ -9,7 +9,6 @@
     <!-- SheetJS (xlsx) library for reading Excel files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        /* A little extra style for the file input button */
         .file-input-button {
             background: linear-gradient(145deg, #5c67f2, #737eff);
             transition: all 0.3s ease;
@@ -18,14 +17,8 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
-        /*
-         * Explicitly define the spin animation to ensure it works.
-         * The 'animate-spin' class from Tailwind will use this.
-         */
         @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+            to { transform: rotate(360deg); }
         }
         .animate-spin {
             animation: spin 1s linear infinite;
@@ -39,14 +32,13 @@
         <div class="text-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800">LTA County Leagues Nominations Checker</h1>
             <p class="text-gray-600 mt-2">
-                Choose an output file from Tournament Software (.xlsx) to examine its contents below. <br>
-                This data remains only in this browser and is not uploaded to a server.
+                Choose an output file from Tournament Software (.xlsx) to examine its contents below.
+                This data is not stored or uploaded to a server.
             </p>
         </div>
 
         <!-- File Input Form -->
         <div class="flex items-center justify-center gap-8">
-            <!-- Matches File Input -->
             <div class="flex items-center gap-2">
                 <label for="matches-file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
                     <span>Choose Matches File</span>
@@ -56,7 +48,6 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
             </div>
-            <!-- Nominations File Input -->
             <div class="flex items-center gap-2">
                 <label for="nominations-file-upload" class="file-input-button text-white font-bold py-3 px-6 rounded-lg cursor-pointer flex items-center justify-center">
                     <span>Choose Nominations File</span>
@@ -66,7 +57,6 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
             </div>
-            <!-- Skip Nominations Button -->
              <div class="flex items-center gap-2">
                  <button id="skip-nominations-button" class="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300">
                     Skip Nominations File
@@ -90,7 +80,7 @@
             <span class="text-gray-700 font-semibold">Loading...</span>
         </div>
 
-        <!-- Div where the resulting HTML table will be displayed -->
+        <!-- Output Div -->
         <div id="output" class="mt-8">
              <p class="text-center text-gray-500">Please select both a matches file and a nominations file, or skip the nominations file.</p>
         </div>
@@ -107,6 +97,27 @@
         const mainLoader = document.getElementById('main-loader');
         const outputDiv = document.getElementById('output');
         const reuseFilesButton = document.getElementById('reuse-files-button');
+
+        // --- Obfuscation Constants & State ---
+        // 50 colours/names
+        const OBFUSCATION_NAMES = [
+            "Red Club", "Blue Club", "Green Club", "Yellow Club", "Purple Club",
+            "Orange Club", "Pink Club", "Brown Club", "Black Club", "White Club",
+            "Gray Club", "Cyan Club", "Magenta Club", "Lime Club", "Teal Club",
+            "Indigo Club", "Violet Club", "Gold Club", "Silver Club", "Bronze Club",
+            "Maroon Club", "Olive Club", "Navy Club", "Aquamarine Club", "Turquoise Club",
+            "Lavender Club", "Coral Club", "Salmon Club", "Khaki Club", "Plum Club",
+            "Beige Club", "Ivory Club", "Azure Club", "Wheat Club", "Crimson Club",
+            "Slate Club", "Tan Club", "Sienna Club", "Orchid Club", "Thistle Club",
+            "Tomato Club", "Peru Club", "Bisque Club", "Mint Club", "Apricot Club",
+            "Cobalt Club", "Charcoal Club", "Ruby Club", "Emerald Club", "Sapphire Club"
+        ];
+
+        let clubNameMap = new Map();
+        let nextObfuscationIndex = 0;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const shouldObfuscate = urlParams.has('obfuscate') && urlParams.get('obfuscate') !== 'false';
 
         // --- State Management ---
         let matchesFile = null;
@@ -130,20 +141,18 @@
                 alert("Please choose a Matches File first.");
                 return;
             }
-            tryToProcessFiles(true); // Pass true to indicate skipping nominations
+            tryToProcessFiles(true);
         });
 
         reuseFilesButton.addEventListener('click', () => {
             const lastMatchesData = localStorage.getItem('lastMatchesFile');
             const lastNominationsData = localStorage.getItem('lastNominationsFile');
             if (lastMatchesData && lastNominationsData) {
-                setMainLoading(true); // Show loader when reusing files
-                // Use a timeout to allow the UI to update before heavy processing
+                setMainLoading(true);
                 setTimeout(() => processAllData(lastMatchesData, lastNominationsData), 50);
             }
         });
 
-        // --- On Page Load ---
         document.addEventListener('DOMContentLoaded', () => {
             const lastMatchesName = localStorage.getItem('lastMatchesFileName');
             const lastNominationsName = localStorage.getItem('lastNominationsFileName');
@@ -153,20 +162,10 @@
             }
         });
 
-
-        /**
-         * Toggles the main loading indicator visibility.
-         * @param {boolean} isLoading True to show spinner, false to hide.
-         */
         function setMainLoading(isLoading) {
             mainLoader.classList.toggle('hidden', !isLoading);
         }
 
-        /**
-         * Promisified FileReader to read a file as a Data URL (base64).
-         * @param {File} file The file to read.
-         * @returns {Promise<string>} A promise that resolves with the file's data URL.
-         */
         function readFileAsDataURL(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -176,14 +175,63 @@
             });
         }
 
-        /**
-         * Core processing function.
-         * @param {string} matchesDataURL The base64 data URL for the matches file.
-         * @param {string} nominationsDataURL The base64 data URL for the nominations file (can be empty).
-         */
+        function parseMemberId(val) {
+            if (val === null || val === undefined || val === '') return null;
+            // Ensure we handle string numbers with spaces or mixed content carefully
+            const strVal = String(val).trim();
+            if (strVal === '') return null;
+            const parsed = parseInt(strVal, 10);
+            return isNaN(parsed) ? null : parsed;
+        }
+
+        function getObfuscatedTeamName(realTeamName) {
+            if (!shouldObfuscate) return realTeamName;
+            if (!realTeamName || typeof realTeamName !== 'string') return realTeamName;
+
+            const words = realTeamName.trim().split(/\s+/);
+            const suffixParts = [];
+            const clubParts = [];
+
+            // Terms to preserve (case-insensitive check)
+            const preserveRegex = /^(Mens|Ladies|Mixed|Men|Women|Men's|Ladies'|Mixed'|M|L|X)$/i;
+            const numberRegex = /^\d+$/;
+
+            // Scan from the end of the string backwards
+            let scanningSuffix = true;
+            for (let i = words.length - 1; i >= 0; i--) {
+                const word = words[i];
+                if (scanningSuffix && (numberRegex.test(word) || preserveRegex.test(word))) {
+                    suffixParts.unshift(word);
+                } else {
+                    scanningSuffix = false;
+                    clubParts.unshift(word);
+                }
+            }
+
+            const clubKey = clubParts.join(" ");
+            let obfuscatedClub = "";
+
+            if (!clubKey) {
+                obfuscatedClub = "Unknown Club";
+            } else {
+                if (!clubNameMap.has(clubKey)) {
+                    if (nextObfuscationIndex < OBFUSCATION_NAMES.length) {
+                        clubNameMap.set(clubKey, OBFUSCATION_NAMES[nextObfuscationIndex++]);
+                    } else {
+                        clubNameMap.set(clubKey, `Club ${nextObfuscationIndex++}`);
+                    }
+                }
+                obfuscatedClub = clubNameMap.get(clubKey);
+            }
+
+            return (obfuscatedClub + " " + suffixParts.join(" ")).trim();
+        }
+
         function processAllData(matchesDataURL, nominationsDataURL) {
             try {
-                // Decode base64 and process matches data
+                clubNameMap.clear();
+                nextObfuscationIndex = 0;
+
                 const matchesData = atob(matchesDataURL.substring(matchesDataURL.indexOf(',') + 1));
                 const matchesWorkbook = XLSX.read(matchesData, { type: 'binary' });
                 const matchesSheetName = matchesWorkbook.SheetNames[0];
@@ -192,22 +240,24 @@
                 const playerFixtures = processPlayerFixtures(matchesJsonData);
                 const teamFixtureCountMap = createTeamFixtureCountMap(playerFixtures);
 
-                // Decode base64 and process nominations data (if it exists)
                 const nominationsDataString = nominationsDataURL.substring(nominationsDataURL.indexOf(',') + 1);
                 let nominationsMap = {};
+                let teamHasExplicitNominations = {};
+
                 if (nominationsDataString) {
                     const nominationsData = atob(nominationsDataString);
                     const nominationsWorkbook = XLSX.read(nominationsData, { type: 'binary' });
                     const nominationsSheetName = nominationsWorkbook.SheetNames[0];
                     const nominationsWorksheet = nominationsWorkbook.Sheets[nominationsSheetName];
                     const nominationsJsonData = XLSX.utils.sheet_to_json(nominationsWorksheet, { header: 1 });
-                    nominationsMap = createNominationsMap(nominationsJsonData);
+                    const result = createNominationsMap(nominationsJsonData);
+                    nominationsMap = result.map;
+                    teamHasExplicitNominations = result.teamHasExplicit;
                 }
 
-                // Generate and display tables
-                const playerSummaryTables = createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap);
+                const playerSummaryTables = createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap, teamHasExplicitNominations);
                 outputDiv.innerHTML = playerSummaryTables;
-                reuseFilesButton.classList.add('hidden'); // Hide reuse button after successful generation
+                reuseFilesButton.classList.add('hidden');
 
             } catch (err) {
                 console.error("Error processing files: ", err);
@@ -217,29 +267,19 @@
             }
         }
 
-        /**
-         * Reads the selected files, caches them, and starts processing.
-         * @param {boolean} skipNominations - True if the user clicked the skip button.
-         */
         function tryToProcessFiles(skipNominations = false) {
             setMainLoading(true);
-
             const promises = [readFileAsDataURL(matchesFile)];
-            if (!skipNominations) {
-                promises.push(readFileAsDataURL(nominationsFile));
-            }
+            if (!skipNominations) promises.push(readFileAsDataURL(nominationsFile));
 
             Promise.all(promises)
                 .then(([matchesDataURL, nominationsDataURL]) => {
                     const nomsFile = skipNominations ? {name: '[SKIPPED]'} : nominationsFile;
-                    const nomsData = nominationsDataURL || 'data:,'; // Provide empty data URL if skipped
-
+                    const nomsData = nominationsDataURL || 'data:,';
                     localStorage.setItem('lastMatchesFile', matchesDataURL);
                     localStorage.setItem('lastNominationsFile', nomsData);
                     localStorage.setItem('lastMatchesFileName', matchesFile.name);
                     localStorage.setItem('lastNominationsFileName', nomsFile.name);
-
-                    // Use a timeout to allow the UI to update before heavy processing
                     setTimeout(() => processAllData(matchesDataURL, nomsData), 50);
                 })
                 .catch(err => {
@@ -251,36 +291,47 @@
 
         function createNominationsMap(jsonData) {
             const map = {};
-            if (!jsonData || jsonData.length < 2) return map;
+            const teamHasExplicit = {};
+            if (!jsonData || jsonData.length < 2) return { map, teamHasExplicit };
 
-            const headerRow = jsonData[0];
-            const teamIndex = headerRow.indexOf("Team");
-            const nom1Index = headerRow.indexOf("Nomination 1");
-            const nom2Index = headerRow.indexOf("Nomination 2");
-            const nom3Index = headerRow.indexOf("Nomination 3");
-            const nom4Index = headerRow.indexOf("Nomination 4");
+            const headerRow = jsonData[0].map(h => String(h).toLowerCase().trim());
+            // More fuzzy header matching
+            const teamIndex = headerRow.findIndex(h => h === "team" || h.includes("team name") || h === "club");
+            const nom1Index = headerRow.findIndex(h => h.includes("nomination 1"));
+            const nom2Index = headerRow.findIndex(h => h.includes("nomination 2"));
+            const nom3Index = headerRow.findIndex(h => h.includes("nomination 3"));
+            const nom4Index = headerRow.findIndex(h => h.includes("nomination 4"));
 
-            if ([teamIndex, nom1Index, nom2Index, nom3Index, nom4Index].some(index => index === -1)) {
-                console.warn("One or more required columns ('Team', 'Nomination 1-4') not found in nominations file.");
-                return map;
+            if (teamIndex === -1 || nom1Index === -1) {
+                console.warn("Required 'Team' or 'Nomination' columns not found in nominations file.");
+                return { map, teamHasExplicit };
             }
+
+            const nomIndices = [nom1Index, nom2Index, nom3Index, nom4Index].filter(i => i !== -1);
 
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
-                const teamName = row[teamIndex];
-                const nom1 = row[nom1Index];
-                const nom2 = row[nom2Index];
-                const nom3 = row[nom3Index];
-                const nom4 = row[nom4Index];
+                // Trim Team Name from file
+                const teamName = row[teamIndex] ? String(row[teamIndex]).trim() : null;
 
-                if (teamName && nom1 && nom2 && nom3 && nom4) {
-                    map[nom1] = teamName;
-                    map[nom2] = teamName;
-                    map[nom3] = teamName;
-                    map[nom4] = teamName;
+                if (teamName) {
+                    const foundIds = [];
+                    nomIndices.forEach(idx => {
+                        const pid = parseMemberId(row[idx]);
+                        if (pid !== null) foundIds.push(pid);
+                    });
+
+                    if (foundIds.length === 4) {
+                        teamHasExplicit[teamName] = true;
+                        foundIds.forEach(pid => {
+                            map[pid] = teamName;
+                        });
+                    } else {
+                        teamHasExplicit[teamName] = false;
+                    }
                 }
             }
-            return map;
+            return { map, teamHasExplicit };
         }
 
         function getTeamRank(teamName) {
@@ -314,22 +365,27 @@
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
                 const division = row[headerMap["Division"]];
-                const homeTeam = row[headerMap["HomeTeamName"]];
-                const awayTeam = row[headerMap["AwayTeamName"]];
+                // Trim Team Names
+                const homeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
+                const awayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
+
                 let matchDateNum = row[headerMap["MatchDate"]];
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
                     ? new Date(Date.UTC(1899, 11, 30 + matchDateNum))
                     : new Date(matchDateNum);
+
                 if (isNaN(matchDate.getTime()) || !division || !homeTeam || !awayTeam) continue;
+
                 const fixtureKey = `${matchDate.toISOString().split('T')[0]}|${division}|${homeTeam}|${awayTeam}`;
+
                 const playerSlots = [
-                    { team: homeTeam, id: row[headerMap["HomeTeamPlayer1_Memberid"]] },
-                    { team: homeTeam, id: row[headerMap["HomeTeamPlayer2_Memberid"]] },
-                    { team: awayTeam, id: row[headerMap["AwayTeamPlayer1_Memberid"]] },
-                    { team: awayTeam, id: row[headerMap["AwayTeamPlayer2_Memberid"]] }
+                    { team: homeTeam, id: parseMemberId(row[headerMap["HomeTeamPlayer1_Memberid"]]) },
+                    { team: homeTeam, id: parseMemberId(row[headerMap["HomeTeamPlayer2_Memberid"]]) },
+                    { team: awayTeam, id: parseMemberId(row[headerMap["AwayTeamPlayer1_Memberid"]]) },
+                    { team: awayTeam, id: parseMemberId(row[headerMap["AwayTeamPlayer2_Memberid"]]) }
                 ];
                 playerSlots.forEach(slot => {
-                    if (slot.id != null && slot.id !== '') {
+                    if (slot.id !== null) {
                         if (!playerFixturesTemp[slot.id]) playerFixturesTemp[slot.id] = {};
                         playerFixturesTemp[slot.id][fixtureKey] = { date: matchDate, team: slot.team, key: fixtureKey };
                     }
@@ -355,7 +411,7 @@
 
             const fixtureCountMap = {};
             for (const team in teamFixtures) {
-                const sortedKeys = Array.from(teamFixtures[team]).sort(); // Sorts by date string
+                const sortedKeys = Array.from(teamFixtures[team]).sort();
                 sortedKeys.forEach((key, index) => {
                     fixtureCountMap[key] = index + 1;
                 });
@@ -385,12 +441,9 @@
                 const currentRank = getTeamRank(fixtures[i].team);
                 let isThisFixtureProblematic = false;
 
-                // Rule 1: Always a problem to play for a team with a worse rank than initial nomination.
                 if (currentRank > nominationRank) {
                     isThisFixtureProblematic = true;
                 }
-
-                // Rule 2 (Refined): If a new standard is set, it's a problem to play worse than it.
                 if (maxAllowedRank !== Infinity && currentRank > maxAllowedRank) {
                     isThisFixtureProblematic = true;
                 }
@@ -400,7 +453,6 @@
                     result.isOverallProblematic = true;
                 }
 
-                // Update state for the next iteration: track played-up matches and update maxAllowedRank.
                 if (currentRank < nominationRank) {
                     playedUpRanks.push(currentRank);
                     if (playedUpRanks.length >= playedUpThreshold) {
@@ -409,30 +461,31 @@
                     }
                 }
             }
-
             return result;
         }
 
-        function processTeamQuotaStatus(matchesJsonData, nominationsMap, playedUpThreshold) {
+        function processTeamQuotaStatus(matchesJsonData, nominationsMap, teamHasExplicitNominations, playedUpThreshold) {
             const teamStatus = {};
             const headerRow = matchesJsonData[0] || [];
             const headerMap = {};
             headerRow.forEach((h, i) => headerMap[h] = i);
 
-            const teamNominations = {};
+            const teamExplicitNominationsSet = {};
             for (const playerId in nominationsMap) {
                 const teamName = nominationsMap[playerId];
-                if (!teamNominations[teamName]) {
-                    teamNominations[teamName] = new Set();
+                if (!teamExplicitNominationsSet[teamName]) {
+                    teamExplicitNominationsSet[teamName] = new Set();
                 }
-                teamNominations[teamName].add(playerId);
+                teamExplicitNominationsSet[teamName].add(parseInt(playerId, 10));
             }
 
             const teamFixtures = {};
              for (let i = 1; i < matchesJsonData.length; i++) {
                 const row = matchesJsonData[i];
-                const homeTeam = row[headerMap["HomeTeamName"]];
-                const awayTeam = row[headerMap["AwayTeamName"]];
+                // Trim Team Names in Matches File
+                const homeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
+                const awayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
+
                 const division = row[headerMap["Division"]];
                 let matchDateNum = row[headerMap["MatchDate"]];
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
@@ -442,42 +495,61 @@
                 if (isNaN(matchDate.getTime())) continue;
 
                 const fixtureKey = `${matchDate.toISOString().split('T')[0]}|${division}|${homeTeam}|${awayTeam}`;
-                const playersInFixture = [
-                    row[headerMap["HomeTeamPlayer1_Memberid"]],
-                    row[headerMap["HomeTeamPlayer2_Memberid"]],
-                    row[headerMap["AwayTeamPlayer1_Memberid"]],
-                    row[headerMap["AwayTeamPlayer2_Memberid"]]
-                ].filter(id => id != null);
 
-                [homeTeam, awayTeam].forEach(team => {
-                    if (!team) return;
-                    if (!teamFixtures[team]) teamFixtures[team] = {};
-                    if (!teamFixtures[team][fixtureKey]) {
-                         teamFixtures[team][fixtureKey] = {
+                const homeP1 = parseMemberId(row[headerMap["HomeTeamPlayer1_Memberid"]]);
+                const homeP2 = parseMemberId(row[headerMap["HomeTeamPlayer2_Memberid"]]);
+                const awayP1 = parseMemberId(row[headerMap["AwayTeamPlayer1_Memberid"]]);
+                const awayP2 = parseMemberId(row[headerMap["AwayTeamPlayer2_Memberid"]]);
+
+                // Create lists of *only* the players for each team
+                const homePlayers = [homeP1, homeP2].filter(p => p !== null);
+                const awayPlayers = [awayP1, awayP2].filter(p => p !== null);
+
+                const processTeam = (teamName, players, opponent) => {
+                     if (!teamName) return;
+                     if (!teamFixtures[teamName]) teamFixtures[teamName] = {};
+                     if (!teamFixtures[teamName][fixtureKey]) {
+                         teamFixtures[teamName][fixtureKey] = {
                             date: matchDate,
-                            opponent: team === homeTeam ? awayTeam : homeTeam,
+                            opponent: opponent,
                             players: new Set()
                         };
                     }
-                    playersInFixture.forEach(pId => teamFixtures[team][fixtureKey].players.add(pId));
-                });
+                    players.forEach(pId => teamFixtures[teamName][fixtureKey].players.add(pId));
+                };
+
+                processTeam(homeTeam, homePlayers, awayTeam);
+                processTeam(awayTeam, awayPlayers, homeTeam);
             }
 
             for (const teamName in teamFixtures) {
                 const sortedFixtures = Object.values(teamFixtures[teamName]).sort((a, b) => a.date - b.date);
+                const hasExplicit = !!teamHasExplicitNominations[teamName];
+
+                let effectiveNominees = new Set();
+
+                if (hasExplicit && teamExplicitNominationsSet[teamName]) {
+                    effectiveNominees = teamExplicitNominationsSet[teamName];
+                } else {
+                    // Default Logic: Scan for the first match that actually has players
+                    const firstMatchWithPlayers = sortedFixtures.find(f => f.players.size > 0);
+                    if (firstMatchWithPlayers) {
+                        effectiveNominees = firstMatchWithPlayers.players;
+                    }
+                }
+
                 teamStatus[teamName] = {
-                    hasFullNominations: (teamNominations[teamName]?.size || 0) === 4,
+                    hasFullNominations: hasExplicit,
                     fixtures: [],
                     isProblematicFirstFixture: false,
                     isProblematicThirdFixture: false,
                 };
 
-                const nominatedPlayersForTeam = teamNominations[teamName] || new Set();
                 const cumulativeNominatedPlayers = new Set();
 
                 sortedFixtures.forEach((fixture, index) => {
                     const playersInThisFixture = Array.from(fixture.players);
-                    const nominatedPlayersInThisFixture = playersInThisFixture.filter(p => nominatedPlayersForTeam.has(p));
+                    const nominatedPlayersInThisFixture = playersInThisFixture.filter(p => effectiveNominees.has(p));
 
                     nominatedPlayersInThisFixture.forEach(p => cumulativeNominatedPlayers.add(p));
 
@@ -486,7 +558,8 @@
                         cumulativeNoms: cumulativeNominatedPlayers.size
                     });
 
-                    if (teamStatus[teamName].hasFullNominations) {
+                    // Only flag if there are actually players in the fixture (ignore walkovers/empty data)
+                    if (playersInThisFixture.length > 0) {
                         if (index === 0 && nominatedPlayersInThisFixture.length < 2) {
                             teamStatus[teamName].isProblematicFirstFixture = true;
                         }
@@ -500,8 +573,8 @@
             return teamStatus;
         }
 
-        function createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap) {
-            const memberIds = Object.keys(playerFixtures).sort((a, b) => a - b);
+        function createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap, teamHasExplicitNominations) {
+            const memberIds = Object.keys(playerFixtures).map(id => parseInt(id, 10)).sort((a, b) => a - b);
             if (memberIds.length === 0) return '<h2 class="text-2xl font-semibold text-gray-700 mb-4">No Player Fixture Data Found</h2>';
 
             const headerRow = matchesJsonData[0] || [];
@@ -526,7 +599,8 @@
             const defaultNominationDetails = {};
             Object.keys(teamEarliestDates).forEach(team => {
                 const earliestDate = teamEarliestDates[team];
-                Object.entries(playerFixtures).forEach(([memberId, fixtures]) => {
+                Object.entries(playerFixtures).forEach(([memberIdStr, fixtures]) => {
+                    const memberId = parseInt(memberIdStr, 10);
                     if (!nominationsMap[memberId]) {
                         const firstMatchForTeam = fixtures.find(f => f.team === team && f.date.getTime() === earliestDate.getTime());
                         if (firstMatchForTeam && !defaultNominationDetails[memberId]) {
@@ -587,6 +661,8 @@
                     const nominatedTeam = nominationsMap[id] || '';
                     const defaultNom = defaultNominationDetails[id];
 
+                    const displayNominatedTeam = getObfuscatedTeamName(nominatedTeam);
+
                     tableHtml += `<tr>`;
                     const idBgClass = problemStatus.isOverallProblematic ? "bg-red-100" : rowBgClass;
                     const idTextClass = problemStatus.isOverallProblematic ? "text-red-700 font-bold" : (isGrayedOut ? "text-gray-500" : "text-gray-900");
@@ -596,7 +672,7 @@
                     if (hasNomination) {
                         nominatedTeamCellClass += " bg-blue-100 font-medium";
                     }
-                    tableHtml += `<td class="${nominatedTeamCellClass}">${nominatedTeam}</td>`;
+                    tableHtml += `<td class="${nominatedTeamCellClass}">${displayNominatedTeam}</td>`;
 
                     for (let i = 0; i < maxFixtures; i++) {
                         let cellClass = `px-6 py-4 whitespace-nowrap text-sm ${rowBgClass}`;
@@ -605,7 +681,10 @@
                             const fixtureKey = fixtures[i].key;
                             const teamMatchCount = teamFixtureCountMap[fixtureKey];
                             const matchCountStr = teamMatchCount ? `, team's ${getOrdinalSuffix(teamMatchCount)} Match` : '';
-                            cellContent = `<div>${fixtures[i].team}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}${matchCountStr}</div>`;
+
+                            const displayFixtureTeam = getObfuscatedTeamName(fixtures[i].team);
+
+                            cellContent = `<div>${displayFixtureTeam}</div><div class="text-xs text-gray-500">${formatFixtureDate(fixtures[i].date)}${matchCountStr}</div>`;
 
                             if (checkProblem && problemStatus.problematicFixtures[i]) {
                                 cellClass += " bg-red-100 text-red-700 font-bold";
@@ -624,7 +703,7 @@
                 return tableHtml;
             };
 
-            const teamQuotaStatus = processTeamQuotaStatus(matchesJsonData, nominationsMap, playedUpThreshold);
+            const teamQuotaStatus = processTeamQuotaStatus(matchesJsonData, nominationsMap, teamHasExplicitNominations, playedUpThreshold);
 
             const buildTeamQuotaTable = () => {
                 const teamNames = Object.keys(teamQuotaStatus).sort((a,b) => {
@@ -656,15 +735,19 @@
                     const teamNameBg = isProblematic ? 'bg-red-100' : 'bg-white';
                     const teamNameText = isProblematic ? 'text-red-700 font-bold' : 'text-gray-900';
 
-                    tableHtml += `<tr><td class="sticky left-0 z-10 px-6 py-4 whitespace-nowrap text-sm font-medium ${teamNameBg} ${teamNameText}">${name}</td>`;
-                    tableHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-center">${status.hasFullNominations ? '✓' : ''}</td>`;
+                    const displayTeamName = getObfuscatedTeamName(name);
+
+                    tableHtml += `<tr><td class="sticky left-0 z-10 px-6 py-4 whitespace-nowrap text-sm font-medium ${teamNameBg} ${teamNameText}">${displayTeamName}</td>`;
+                    tableHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-center text-green-600 font-bold">${status.hasFullNominations ? '&#10003;' : ''}</td>`;
 
                     for(let i = 0; i < maxTeamFixtures; i++) {
                         let cellClass = `px-6 py-4 whitespace-nowrap text-sm`;
                         let cellContent = '';
                         if (status.fixtures[i]) {
                             const fixture = status.fixtures[i];
-                            cellContent = `<div>vs ${fixture.opponent}</div><div class="text-xs text-gray-500">${fixture.cumulativeNoms} / 4 nominated players played so far</div>`;
+                            const displayOpponent = getObfuscatedTeamName(fixture.opponent);
+
+                            cellContent = `<div>vs ${displayOpponent}</div><div class="text-xs text-gray-500">${fixture.cumulativeNoms} / 4 nominated players played so far</div>`;
 
                             const finalCheckFixtureIndex = isMixedLeague ? 1 : 2;
                             if (i === 0 && status.isProblematicFirstFixture) {
@@ -690,7 +773,8 @@
                         <div class="py-1"><svg class="h-6 w-6 text-blue-500 mr-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
                         <div>
                             <p class="font-bold">Rule Information</p>
-                            <p class="text-sm">Detected a <strong>${isMixedLeague ? 'Mixed League' : "Men's/Ladies' League"}</strong>. A player is flagged if they play for a lower-ranked team than their nomination (if they have one) or for any match played after they've played <strong>${playedUpThreshold}</strong> or more times for higher ranked teams. Teams must field 2 nominated players in their 1st fixture and all 4 nominated players by their <strong>${isMixedLeague ? '2nd' : '3rd'}</strong> fixture.</p>
+                            <p class="text-sm">Detected a <strong>${isMixedLeague ? 'Mixed League' : "Men's/Ladies' League"}</strong>. A player is flagged if they play for a lower-ranked team than their nomination (if they have one) or for any match played after they've played <strong>${playedUpThreshold}</strong> or more times for higher ranked teams. Teams must field 2 nominated players in their 1st fixture and all 4 nominated players by their ${isMixedLeague ? '2nd' : '3rd'} fixture.</p>
+                            ${shouldObfuscate ? '<p class="text-sm mt-2 text-indigo-700"><strong>Note:</strong> Team name obfuscation is active.</p>' : ''}
                         </div>
                     </div>
                 </div>

@@ -23,6 +23,47 @@
         .animate-spin {
             animation: spin 1s linear infinite;
         }
+        /* Tooltip Styles */
+        .tooltip-container {
+            position: relative;
+            cursor: help;
+        }
+        .tooltip-text {
+            visibility: hidden;
+            width: 280px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 50;
+            bottom: 100%;
+            left: 50%;
+            margin-left: -140px;
+            margin-bottom: 8px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.75rem;
+            line-height: 1.2;
+            pointer-events: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        /* Tiny arrow for tooltip */
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
     </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans">
@@ -175,12 +216,10 @@
             });
         }
 
+        // Reverted to Strict Integer Parsing as requested
         function parseMemberId(val) {
             if (val === null || val === undefined || val === '') return null;
-            // Ensure we handle string numbers with spaces or mixed content carefully
-            const strVal = String(val).trim();
-            if (strVal === '') return null;
-            const parsed = parseInt(strVal, 10);
+            const parsed = parseInt(val, 10);
             return isNaN(parsed) ? null : parsed;
         }
 
@@ -192,11 +231,9 @@
             const suffixParts = [];
             const clubParts = [];
 
-            // Terms to preserve (case-insensitive check)
             const preserveRegex = /^(Mens|Ladies|Mixed|Men|Women|Men's|Ladies'|Mixed'|M|L|X)$/i;
             const numberRegex = /^\d+$/;
 
-            // Scan from the end of the string backwards
             let scanningSuffix = true;
             for (let i = words.length - 1; i >= 0; i--) {
                 const word = words[i];
@@ -242,7 +279,10 @@
 
                 const nominationsDataString = nominationsDataURL.substring(nominationsDataURL.indexOf(',') + 1);
                 let nominationsMap = {};
-                let teamHasExplicitNominations = {};
+
+                // Map of "Team Name" -> [Array of 4 IDs]
+                // Using this structure allows us to support the Tooltip and logic check
+                let teamExplicitNominations = {};
 
                 if (nominationsDataString) {
                     const nominationsData = atob(nominationsDataString);
@@ -252,10 +292,10 @@
                     const nominationsJsonData = XLSX.utils.sheet_to_json(nominationsWorksheet, { header: 1 });
                     const result = createNominationsMap(nominationsJsonData);
                     nominationsMap = result.map;
-                    teamHasExplicitNominations = result.teamHasExplicit;
+                    teamExplicitNominations = result.teamExplicitNominations;
                 }
 
-                const playerSummaryTables = createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap, teamHasExplicitNominations);
+                const playerSummaryTables = createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap, teamExplicitNominations);
                 outputDiv.innerHTML = playerSummaryTables;
                 reuseFilesButton.classList.add('hidden');
 
@@ -291,12 +331,12 @@
 
         function createNominationsMap(jsonData) {
             const map = {};
-            const teamHasExplicit = {};
-            if (!jsonData || jsonData.length < 2) return { map, teamHasExplicit };
+            const teamExplicitNominations = {};
+            if (!jsonData || jsonData.length < 2) return { map, teamExplicitNominations };
 
+            // Original simple header scanning logic (row 0)
             const headerRow = jsonData[0].map(h => String(h).toLowerCase().trim());
-            // More fuzzy header matching
-            const teamIndex = headerRow.findIndex(h => h === "team" || h.includes("team name") || h === "club");
+            const teamIndex = headerRow.indexOf("team");
             const nom1Index = headerRow.findIndex(h => h.includes("nomination 1"));
             const nom2Index = headerRow.findIndex(h => h.includes("nomination 2"));
             const nom3Index = headerRow.findIndex(h => h.includes("nomination 3"));
@@ -304,14 +344,15 @@
 
             if (teamIndex === -1 || nom1Index === -1) {
                 console.warn("Required 'Team' or 'Nomination' columns not found in nominations file.");
-                return { map, teamHasExplicit };
+                return { map, teamExplicitNominations };
             }
 
             const nomIndices = [nom1Index, nom2Index, nom3Index, nom4Index].filter(i => i !== -1);
 
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
-                // Trim Team Name from file
+
+                // IMPORTANT: Trim the team name to ensure matches against other file
                 const teamName = row[teamIndex] ? String(row[teamIndex]).trim() : null;
 
                 if (teamName) {
@@ -321,17 +362,16 @@
                         if (pid !== null) foundIds.push(pid);
                     });
 
+                    // Strict check: Only 4 valid IDs count as explicit
                     if (foundIds.length === 4) {
-                        teamHasExplicit[teamName] = true;
+                        teamExplicitNominations[teamName] = foundIds;
                         foundIds.forEach(pid => {
                             map[pid] = teamName;
                         });
-                    } else {
-                        teamHasExplicit[teamName] = false;
                     }
                 }
             }
-            return { map, teamHasExplicit };
+            return { map, teamExplicitNominations };
         }
 
         function getTeamRank(teamName) {
@@ -365,7 +405,8 @@
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
                 const division = row[headerMap["Division"]];
-                // Trim Team Names
+
+                // IMPORTANT: Trim Team Names from Matches File
                 const homeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
                 const awayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
 
@@ -373,9 +414,7 @@
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
                     ? new Date(Date.UTC(1899, 11, 30 + matchDateNum))
                     : new Date(matchDateNum);
-
                 if (isNaN(matchDate.getTime()) || !division || !homeTeam || !awayTeam) continue;
-
                 const fixtureKey = `${matchDate.toISOString().split('T')[0]}|${division}|${homeTeam}|${awayTeam}`;
 
                 const playerSlots = [
@@ -464,28 +503,26 @@
             return result;
         }
 
-        function processTeamQuotaStatus(matchesJsonData, nominationsMap, teamHasExplicitNominations, playedUpThreshold) {
+        function processTeamQuotaStatus(matchesJsonData, nominationsMap, teamExplicitNominations, playedUpThreshold) {
             const teamStatus = {};
             const headerRow = matchesJsonData[0] || [];
             const headerMap = {};
             headerRow.forEach((h, i) => headerMap[h] = i);
 
+            // 1. Rebuild Sets of explicit IDs for fast lookup
+            // Key: Trimmed Team Name, Value: Set of Int IDs
             const teamExplicitNominationsSet = {};
-            for (const playerId in nominationsMap) {
-                const teamName = nominationsMap[playerId];
-                if (!teamExplicitNominationsSet[teamName]) {
-                    teamExplicitNominationsSet[teamName] = new Set();
-                }
-                teamExplicitNominationsSet[teamName].add(parseInt(playerId, 10));
+            for (const teamName in teamExplicitNominations) {
+                teamExplicitNominationsSet[teamName] = new Set(teamExplicitNominations[teamName]);
             }
 
+            // 2. Build Fixture List
             const teamFixtures = {};
              for (let i = 1; i < matchesJsonData.length; i++) {
                 const row = matchesJsonData[i];
-                // Trim Team Names in Matches File
+                // Trim Team Names
                 const homeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
                 const awayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
-
                 const division = row[headerMap["Division"]];
                 let matchDateNum = row[headerMap["MatchDate"]];
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
@@ -501,7 +538,6 @@
                 const awayP1 = parseMemberId(row[headerMap["AwayTeamPlayer1_Memberid"]]);
                 const awayP2 = parseMemberId(row[headerMap["AwayTeamPlayer2_Memberid"]]);
 
-                // Create lists of *only* the players for each team
                 const homePlayers = [homeP1, homeP2].filter(p => p !== null);
                 const awayPlayers = [awayP1, awayP2].filter(p => p !== null);
 
@@ -522,16 +558,20 @@
                 processTeam(awayTeam, awayPlayers, homeTeam);
             }
 
+            // 3. Process Status
             for (const teamName in teamFixtures) {
                 const sortedFixtures = Object.values(teamFixtures[teamName]).sort((a, b) => a.date - b.date);
-                const hasExplicit = !!teamHasExplicitNominations[teamName];
+
+                // Lookup using the trimmed teamName key
+                const explicitIds = teamExplicitNominations[teamName];
+                const hasExplicit = !!explicitIds;
 
                 let effectiveNominees = new Set();
 
-                if (hasExplicit && teamExplicitNominationsSet[teamName]) {
+                if (hasExplicit) {
                     effectiveNominees = teamExplicitNominationsSet[teamName];
                 } else {
-                    // Default Logic: Scan for the first match that actually has players
+                    // Default Logic: First match with players
                     const firstMatchWithPlayers = sortedFixtures.find(f => f.players.size > 0);
                     if (firstMatchWithPlayers) {
                         effectiveNominees = firstMatchWithPlayers.players;
@@ -540,6 +580,7 @@
 
                 teamStatus[teamName] = {
                     hasFullNominations: hasExplicit,
+                    explicitNomineeIds: hasExplicit ? explicitIds : null,
                     fixtures: [],
                     isProblematicFirstFixture: false,
                     isProblematicThirdFixture: false,
@@ -558,7 +599,6 @@
                         cumulativeNoms: cumulativeNominatedPlayers.size
                     });
 
-                    // Only flag if there are actually players in the fixture (ignore walkovers/empty data)
                     if (playersInThisFixture.length > 0) {
                         if (index === 0 && nominatedPlayersInThisFixture.length < 2) {
                             teamStatus[teamName].isProblematicFirstFixture = true;
@@ -573,7 +613,7 @@
             return teamStatus;
         }
 
-        function createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap, teamHasExplicitNominations) {
+        function createPlayerSummaryTables(matchesJsonData, playerFixtures, nominationsMap, teamFixtureCountMap, teamExplicitNominations) {
             const memberIds = Object.keys(playerFixtures).map(id => parseInt(id, 10)).sort((a, b) => a - b);
             if (memberIds.length === 0) return '<h2 class="text-2xl font-semibold text-gray-700 mb-4">No Player Fixture Data Found</h2>';
 
@@ -703,7 +743,7 @@
                 return tableHtml;
             };
 
-            const teamQuotaStatus = processTeamQuotaStatus(matchesJsonData, nominationsMap, teamHasExplicitNominations, playedUpThreshold);
+            const teamQuotaStatus = processTeamQuotaStatus(matchesJsonData, nominationsMap, teamExplicitNominations, playedUpThreshold);
 
             const buildTeamQuotaTable = () => {
                 const teamNames = Object.keys(teamQuotaStatus).sort((a,b) => {
@@ -737,8 +777,22 @@
 
                     const displayTeamName = getObfuscatedTeamName(name);
 
+                    // Logic for Tick/Cross and Tooltip
+                    let nomSymbol = '&#10007;'; // Cross (red)
+                    let nomColorClass = 'text-red-400';
+                    let titleAttr = 'No explicit nominations found in file';
+
+                    if (status.hasFullNominations) {
+                        nomSymbol = '&#10003;'; // Tick (green)
+                        nomColorClass = 'text-green-600';
+                        titleAttr = `Explicitly nominated IDs: ${status.explicitNomineeIds.join(', ')}`;
+                    }
+
                     tableHtml += `<tr><td class="sticky left-0 z-10 px-6 py-4 whitespace-nowrap text-sm font-medium ${teamNameBg} ${teamNameText}">${displayTeamName}</td>`;
-                    tableHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-center text-green-600 font-bold">${status.hasFullNominations ? '&#10003;' : ''}</td>`;
+                    tableHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-center ${nomColorClass} font-bold text-lg tooltip-container">
+                                    ${nomSymbol}
+                                    <span class="tooltip-text">${titleAttr}</span>
+                                  </td>`;
 
                     for(let i = 0; i < maxTeamFixtures; i++) {
                         let cellClass = `px-6 py-4 whitespace-nowrap text-sm`;
@@ -765,7 +819,6 @@
                 tableHtml += `</tbody></table></div></div>`;
                 return tableHtml;
             };
-
 
             const infoBoxHtml = `
                 <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 rounded-r-lg">

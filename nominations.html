@@ -216,11 +216,39 @@
             });
         }
 
-        // Reverted to Strict Integer Parsing as requested
+        // Strict Integer Parsing as per explicit unique numerical player IDs
         function parseMemberId(val) {
             if (val === null || val === undefined || val === '') return null;
             const parsed = parseInt(val, 10);
             return isNaN(parsed) ? null : parsed;
+        }
+
+        // --- HELPER: Blends LeagueType distinction into Team Name ---
+        function buildTeamName(leagueType, teamName) {
+            if (!teamName) return null;
+            let lt = String(leagueType || "").trim();
+            let tn = String(teamName || "").trim();
+
+            const categoryMatch = lt.match(/\b(Mens?|Men's|Ladies|Mixed|Womens?|Women's|Boys?|Girls?)\b/i);
+
+            if (!categoryMatch) {
+                return tn;
+            }
+
+            let category = categoryMatch[1];
+            category = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
+            category = category.replace(/'/g, '');
+
+            const tnCategoryMatch = tn.match(/\b(Mens?|Men's|Ladies|Mixed|Womens?|Women's|Boys?|Girls?)\b/i);
+            if (tnCategoryMatch) {
+                return tn;
+            }
+
+            const numberMatch = tn.match(/^(.*?)(\s\d+)?$/);
+            const baseName = (numberMatch[1] || tn).trim();
+            const trailingNumber = numberMatch[2] || "";
+
+            return `${baseName} ${category}${trailingNumber}`.trim();
         }
 
         function getObfuscatedTeamName(realTeamName) {
@@ -281,7 +309,6 @@
                 let nominationsMap = {};
 
                 // Map of "Team Name" -> [Array of 4 IDs]
-                // Using this structure allows us to support the Tooltip and logic check
                 let teamExplicitNominations = {};
 
                 if (nominationsDataString) {
@@ -334,16 +361,18 @@
             const teamExplicitNominations = {};
             if (!jsonData || jsonData.length < 2) return { map, teamExplicitNominations };
 
-            // Original simple header scanning logic (row 0)
             const headerRow = jsonData[0].map(h => String(h).toLowerCase().trim());
-            const teamIndex = headerRow.indexOf("team");
-            const nom1Index = headerRow.findIndex(h => h.includes("nomination 1"));
-            const nom2Index = headerRow.findIndex(h => h.includes("nomination 2"));
-            const nom3Index = headerRow.findIndex(h => h.includes("nomination 3"));
-            const nom4Index = headerRow.findIndex(h => h.includes("nomination 4"));
 
-            if (teamIndex === -1 || nom1Index === -1) {
-                console.warn("Required 'Team' or 'Nomination' columns not found in nominations file.");
+            // Search flexibly for new format columns, removing spaces for matching safety
+            const ltIndex = headerRow.findIndex(h => h.replace(/\s+/g, '') === "leaguetype");
+            const tnIndex = headerRow.findIndex(h => h.replace(/\s+/g, '') === "teamname" || h === "team");
+            const nom1Index = headerRow.findIndex(h => h.replace(/\s+/g, '').includes("nomination1"));
+            const nom2Index = headerRow.findIndex(h => h.replace(/\s+/g, '').includes("nomination2"));
+            const nom3Index = headerRow.findIndex(h => h.replace(/\s+/g, '').includes("nomination3"));
+            const nom4Index = headerRow.findIndex(h => h.replace(/\s+/g, '').includes("nomination4"));
+
+            if (tnIndex === -1 || nom1Index === -1) {
+                console.warn("Required 'TeamName' or 'Nomination' columns not found in nominations file.");
                 return { map, teamExplicitNominations };
             }
 
@@ -352,8 +381,10 @@
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
 
-                // IMPORTANT: Trim the team name to ensure matches against other file
-                const teamName = row[teamIndex] ? String(row[teamIndex]).trim() : null;
+                // Blend LeagueType distinction into Team Name
+                const lt = (ltIndex !== -1 && row[ltIndex]) ? String(row[ltIndex]).trim() : "";
+                const tn = (row[tnIndex]) ? String(row[tnIndex]).trim() : "";
+                const teamName = buildTeamName(lt, tn);
 
                 if (teamName) {
                     const foundIds = [];
@@ -406,9 +437,13 @@
                 const row = jsonData[i];
                 const division = row[headerMap["Division"]];
 
-                // IMPORTANT: Trim Team Names from Matches File
-                const homeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
-                const awayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
+                // Blend LeagueType distinction into Team Name
+                const lt = row[headerMap["LeagueType"]] ? String(row[headerMap["LeagueType"]]).trim() : "";
+                const rawHomeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
+                const rawAwayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
+
+                const homeTeam = buildTeamName(lt, rawHomeTeam);
+                const awayTeam = buildTeamName(lt, rawAwayTeam);
 
                 let matchDateNum = row[headerMap["MatchDate"]];
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
@@ -510,7 +545,6 @@
             headerRow.forEach((h, i) => headerMap[h] = i);
 
             // 1. Rebuild Sets of explicit IDs for fast lookup
-            // Key: Trimmed Team Name, Value: Set of Int IDs
             const teamExplicitNominationsSet = {};
             for (const teamName in teamExplicitNominations) {
                 teamExplicitNominationsSet[teamName] = new Set(teamExplicitNominations[teamName]);
@@ -520,10 +554,16 @@
             const teamFixtures = {};
              for (let i = 1; i < matchesJsonData.length; i++) {
                 const row = matchesJsonData[i];
-                // Trim Team Names
-                const homeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
-                const awayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
+
+                // Blend LeagueType distinction into Team Name
+                const lt = row[headerMap["LeagueType"]] ? String(row[headerMap["LeagueType"]]).trim() : "";
+                const rawHomeTeam = row[headerMap["HomeTeamName"]] ? String(row[headerMap["HomeTeamName"]]).trim() : null;
+                const rawAwayTeam = row[headerMap["AwayTeamName"]] ? String(row[headerMap["AwayTeamName"]]).trim() : null;
                 const division = row[headerMap["Division"]];
+
+                const homeTeam = buildTeamName(lt, rawHomeTeam);
+                const awayTeam = buildTeamName(lt, rawAwayTeam);
+
                 let matchDateNum = row[headerMap["MatchDate"]];
                 let matchDate = (typeof matchDateNum === 'number' && matchDateNum > 1)
                     ? new Date(Date.UTC(1899, 11, 30 + matchDateNum))
@@ -562,7 +602,7 @@
             for (const teamName in teamFixtures) {
                 const sortedFixtures = Object.values(teamFixtures[teamName]).sort((a, b) => a.date - b.date);
 
-                // Lookup using the trimmed teamName key
+                // Lookup using the perfectly preserved teamName key
                 const explicitIds = teamExplicitNominations[teamName];
                 const hasExplicit = !!explicitIds;
 
@@ -581,6 +621,7 @@
                 teamStatus[teamName] = {
                     hasFullNominations: hasExplicit,
                     explicitNomineeIds: hasExplicit ? explicitIds : null,
+                    nominees: Array.from(effectiveNominees),
                     fixtures: [],
                     isProblematicFirstFixture: false,
                     isProblematicThirdFixture: false,
@@ -596,7 +637,8 @@
 
                     teamStatus[teamName].fixtures.push({
                         opponent: fixture.opponent,
-                        cumulativeNoms: cumulativeNominatedPlayers.size
+                        cumulativeNoms: cumulativeNominatedPlayers.size,
+                        playedNominees: new Set(cumulativeNominatedPlayers)
                     });
 
                     if (playersInThisFixture.length > 0) {
@@ -801,7 +843,11 @@
                             const fixture = status.fixtures[i];
                             const displayOpponent = getObfuscatedTeamName(fixture.opponent);
 
-                            cellContent = `<div>vs ${displayOpponent}</div><div class="text-xs text-gray-500">${fixture.cumulativeNoms} / 4 nominated players played so far</div>`;
+                            const nomineesHtml = status.nominees.length > 0
+                                ? status.nominees.map(id => fixture.playedNominees.has(id) ? `<span class="text-green-600 font-bold">${id}</span>` : `<span class="text-gray-400">${id}</span>`).join(', ')
+                                : '<span class="text-gray-400 italic">No nominees</span>';
+
+                            cellContent = `<div>vs ${displayOpponent}</div><div class="text-xs mt-1 text-gray-500">${nomineesHtml}</div>`;
 
                             const finalCheckFixtureIndex = isMixedLeague ? 1 : 2;
                             if (i === 0 && status.isProblematicFirstFixture) {
@@ -819,6 +865,7 @@
                 tableHtml += `</tbody></table></div></div>`;
                 return tableHtml;
             };
+
 
             const infoBoxHtml = `
                 <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 rounded-r-lg">
